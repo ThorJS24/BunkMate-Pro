@@ -1,0 +1,1 @@
+ALTER TABLE `semesters` ADD `period_times` text;

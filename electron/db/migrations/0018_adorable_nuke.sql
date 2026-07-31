@@ -1,0 +1,1 @@
+ALTER TABLE `subjects` ADD `grade_point` real;

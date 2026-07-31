@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `launch_view` text DEFAULT 'today' NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `muted_notification_categories` text DEFAULT '[]' NOT NULL;

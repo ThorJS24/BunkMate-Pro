@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `density` text DEFAULT 'comfortable' NOT NULL;

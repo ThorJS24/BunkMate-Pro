@@ -1,0 +1,108 @@
+{
+  "name": "bunkmate-pro",
+  "private": true,
+  "version": "1.4.0",
+  "type": "module",
+  "description": "Offline attendance tracker for CHRIST University students",
+  "author": "BunkMate Pro",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ThorJS24/HolyAttendance.git"
+  },
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "predev": "electron-rebuild -f -w better-sqlite3",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "prepackage": "electron-rebuild -f -w better-sqlite3",
+    "package": "npm run build && electron-builder",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "pretest": "npm rebuild better-sqlite3",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.2",
+    "better-sqlite3": "^12.11.1",
+    "pdfjs-dist": "^6.1.200",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@radix-ui/react-checkbox": "^1.3.7",
+    "@radix-ui/react-dialog": "^1.1.19",
+    "@radix-ui/react-dropdown-menu": "^2.1.20",
+    "@radix-ui/react-label": "^2.1.11",
+    "@radix-ui/react-popover": "^1.1.19",
+    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@radix-ui/react-switch": "^1.3.3",
+    "@radix-ui/react-tabs": "^1.1.17",
+    "@radix-ui/react-toast": "^1.2.19",
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "exceljs": "^4.4.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^1.24.0",
+    "oxlint": "^1.71.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-grid-layout": "^2.2.4",
+    "react-router-dom": "^7.18.1",
+    "recharts": "^3.9.2",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.2",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vite-plugin-electron": "^1.1.0",
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^4.1.10",
+    "zustand": "^5.0.14"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "core-js@3.49.0": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "build": {
+    "appId": "com.bunkmate.pro",
+    "productName": "BunkMate Pro",
+    "files": [
+      "dist/**",
+      "dist-electron/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/tessdata",
+        "to": "tessdata"
+      }
+    ],
+    "asar": false,
+    "compression": "maximum",
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}

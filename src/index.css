@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  /* "Ledger" direction: warm paper ground, ink-blue accent, muted warm
+     semantic states — picked with the user from bunkmate-directions.html.
+     Chart colors below are untouched on purpose (validated palette, see the
+     dataviz skill's references/palette.md — not part of this pass). */
+  --radius: 0.5rem;
+  --background: oklch(0.975 0.006 85);
+  --foreground: oklch(0.19 0.01 75);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.19 0.01 75);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.19 0.01 75);
+  --primary: oklch(0.34 0.08 258);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.94 0.012 80);
+  --secondary-foreground: oklch(0.19 0.01 75);
+  --muted: oklch(0.94 0.012 80);
+  --muted-foreground: oklch(0.5 0.02 75);
+  --accent: oklch(0.93 0.02 260);
+  --accent-foreground: oklch(0.34 0.08 258);
+  --destructive: oklch(0.5 0.16 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.45 0.09 155);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.72 0.13 68);
+  --warning-foreground: oklch(0.19 0.01 75);
+  --border: oklch(0.88 0.02 80);
+  --input: oklch(0.88 0.02 80);
+  --ring: oklch(0.45 0.1 258);
+
+  /* Chart palette (validated categorical order + sequential ramp; see the
+     dataviz skill's references/palette.md — these are the reference hexes,
+     not eyeballed). */
+  --chart-1: #2a78d6;
+  --chart-2: #008300;
+  --chart-3: #e87ba4;
+  --chart-4: #eda100;
+  --chart-5: #1baf7a;
+  --chart-6: #eb6834;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
+  --chart-seq-1: #cde2fb;
+  --chart-seq-2: #6da7ec;
+  --chart-seq-3: #2a78d6;
+  --chart-seq-4: #184f95;
+  --chart-grid: #e1e0d9;
+  --chart-axis: #898781;
+}
+
+.dark {
+  --background: oklch(0.16 0.01 75);
+  --foreground: oklch(0.93 0.015 80);
+  --card: oklch(0.21 0.012 75);
+  --card-foreground: oklch(0.93 0.015 80);
+  --popover: oklch(0.21 0.012 75);
+  --popover-foreground: oklch(0.93 0.015 80);
+  --primary: oklch(0.72 0.09 258);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --secondary: oklch(0.26 0.015 75);
+  --secondary-foreground: oklch(0.93 0.015 80);
+  --muted: oklch(0.26 0.015 75);
+  --muted-foreground: oklch(0.72 0.03 75);
+  --accent: oklch(0.28 0.04 258);
+  --accent-foreground: oklch(0.72 0.09 258);
+  --destructive: oklch(0.62 0.15 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.72 0.11 155);
+  --success-foreground: oklch(0.16 0.01 75);
+  --warning: oklch(0.72 0.13 68);
+  --warning-foreground: oklch(0.16 0.01 75);
+  --border: oklch(0.32 0.02 75);
+  --input: oklch(0.32 0.02 75);
+  --ring: oklch(0.72 0.09 258);
+
+  --chart-1: #3987e5;
+  --chart-2: #008300;
+  --chart-3: #d55181;
+  --chart-4: #c98500;
+  --chart-5: #199e70;
+  --chart-6: #d95926;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-seq-1: #184f95;
+  --chart-seq-2: #256abf;
+  --chart-seq-3: #5598e7;
+  --chart-seq-4: #9ec5f4;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #898781;
+}
+
+/* Built-in theme packs (see THEME_PACKS in src/db/schema.ts) — each is a hue
+   rotation of the same lightness/chroma the default "Ledger" look already
+   validated, so contrast against foreground/background stays consistent.
+   Only primary/accent/ring move; background/card/border/destructive/success/
+   warning are shared across all packs on purpose (semantic colors shouldn't
+   change with the accent, and a shared neutral base is what makes any accent
+   hue drop in cleanly). Applied as a class on <html> alongside .dark, so
+   `.theme-x.dark` (higher specificity than the bare `.dark` block above)
+   is what makes dark mode pick up the pack's own dark-mode values. */
+.theme-ocean {
+  --primary: oklch(0.34 0.08 230);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.93 0.02 230);
+  --accent-foreground: oklch(0.34 0.08 230);
+  --ring: oklch(0.45 0.1 230);
+}
+.theme-ocean.dark {
+  --primary: oklch(0.72 0.09 230);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.28 0.04 230);
+  --accent-foreground: oklch(0.72 0.09 230);
+  --ring: oklch(0.72 0.09 230);
+}
+
+.theme-forest {
+  --primary: oklch(0.34 0.08 150);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.93 0.02 150);
+  --accent-foreground: oklch(0.34 0.08 150);
+  --ring: oklch(0.45 0.1 150);
+}
+.theme-forest.dark {
+  --primary: oklch(0.72 0.09 150);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.28 0.04 150);
+  --accent-foreground: oklch(0.72 0.09 150);
+  --ring: oklch(0.72 0.09 150);
+}
+
+.theme-sunset {
+  --primary: oklch(0.4 0.12 40);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.93 0.03 40);
+  --accent-foreground: oklch(0.4 0.12 40);
+  --ring: oklch(0.5 0.13 40);
+}
+.theme-sunset.dark {
+  --primary: oklch(0.75 0.12 55);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.3 0.05 45);
+  --accent-foreground: oklch(0.75 0.12 55);
+  --ring: oklch(0.75 0.12 55);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font: 14px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+  }
+
+  /* Ledger display face: page titles, card titles, dialog titles — every
+     heading-level element already carries a data-slot from the shared
+     shadcn primitives, so this is one rule instead of touching every page. */
+  h1,
+  [data-slot='card-title'],
+  [data-slot='dialog-title'],
+  [data-slot='alert-title'] {
+    font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Compact density: opt-in tightening for users tracking many subjects on one
+   screen. Scoped to the .compact root class (toggled in use-theme from the
+   density setting) so comfortable mode is completely unaffected. Pulls in the
+   two things that dominate vertical space — card padding and table row
+   height — plus the main content padding, without touching type scale. */
+.compact [data-slot='card-content'],
+.compact [data-slot='card-header'] {
+  padding: 0.85rem;
+}
+.compact table :is(th, td) {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+.compact main {
+  padding: 1rem;
+}
+
+/* react-grid-layout's resize handle (Dashboard) hardcodes its corner mark to
+   rgba(0,0,0,0.4) in its own stylesheet — invisible against a dark-mode tile,
+   which is the default theme here. !important because the library's own CSS
+   is imported inside the lazy-loaded Dashboard chunk, so load order relative
+   to this file isn't guaranteed; this needs to win regardless. Also sized up
+   from the library's 5x5 default — barely visible even in light mode. */
+.react-grid-item > .react-resizable-handle::after {
+  right: 4px !important;
+  bottom: 4px !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-right: 2.5px solid var(--muted-foreground) !important;
+  border-bottom: 2.5px solid var(--muted-foreground) !important;
+}

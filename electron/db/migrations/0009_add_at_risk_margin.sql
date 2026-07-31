@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `at_risk_margin_pp` real DEFAULT 5 NOT NULL;

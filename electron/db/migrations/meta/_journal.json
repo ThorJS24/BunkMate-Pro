@@ -1,0 +1,139 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784140694295,
+      "tag": "0000_strong_meggan",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784167503584,
+      "tag": "0001_blue_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784168480826,
+      "tag": "0002_optimal_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784169643778,
+      "tag": "0003_split_min_target",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784187422132,
+      "tag": "0004_add_semesters",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1784269091315,
+      "tag": "0005_add_yellow_form_disputes",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784271997313,
+      "tag": "0006_add_period_times_to_semesters",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784347423217,
+      "tag": "0007_add_muted_notification_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1784348308141,
+      "tag": "0008_add_subject_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784348704137,
+      "tag": "0009_add_at_risk_margin",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784349044502,
+      "tag": "0010_add_density",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1784350218745,
+      "tag": "0011_add_exams",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1784351433001,
+      "tag": "0012_add_class_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1784352923883,
+      "tag": "0013_add_launch_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1784365625004,
+      "tag": "0014_reconcile_mentoring_bucket",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1784377818982,
+      "tag": "0015_exam_details_and_grouping",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1784428554083,
+      "tag": "0016_exam_reminders_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1785344817281,
+      "tag": "0017_panoramic_chamber",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1785465022402,
+      "tag": "0018_adorable_nuke",
+      "breakpoints": true
+    }
+  ]
+}

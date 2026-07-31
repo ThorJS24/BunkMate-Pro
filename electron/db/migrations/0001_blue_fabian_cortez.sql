@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `last_backup_at` integer;

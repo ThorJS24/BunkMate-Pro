@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `attendance_records_subject_date_period_unique` ON `attendance_records` (`subject_id`,`date`,`period`);--> statement-breakpoint
+CREATE UNIQUE INDEX `timetable_slots_semester_day_period_unique` ON `timetable_slots` (`semester`,`day`,`period`);

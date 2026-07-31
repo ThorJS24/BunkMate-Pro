@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `exam_reminders` integer DEFAULT true NOT NULL;
