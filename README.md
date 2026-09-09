@@ -7,7 +7,9 @@
 **Offline attendance tracking, prediction, and academic planning for CHRIST University students.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](package.json)
+[![CI Status](https://github.com/ThorJS24/HolyAttendance/actions/workflows/ci.yml/badge.svg)](https://github.com/ThorJS24/HolyAttendance/actions)
+[![Latest Release](https://img.shields.io/github/v/release/ThorJS24/HolyAttendance)](https://github.com/ThorJS24/HolyAttendance/releases/tag/v2.1.0)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](#getting-started)
 [![Built with Electron](https://img.shields.io/badge/Electron-43-9feaf9?logo=electron&logoColor=black)](https://www.electronjs.org/)
 [![Built with React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -16,7 +18,7 @@
 
 ---
 
-BunkMate Pro is a local-first desktop app that tells you exactly how many classes you can safely miss — and which ones you can't — without waiting on a college portal to catch up. Every timetable, attendance mark, exam, and yellow form lives in a single SQLite file on your own machine. No account, no server, no internet required.
+BunkMate Pro is an offline-first desktop app and ESPRO live sync engine that tells you exactly how many classes you can safely miss — and which ones you can't — without waiting on a college portal to catch up. Every timetable, attendance mark, exam, and yellow form lives in a single SQLite file on your own machine. 100% on-device AES-256 / DPAPI encryption, zero telemetry.
 
 ## Table of Contents
 
