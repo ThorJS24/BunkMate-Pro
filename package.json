@@ -87,6 +87,8 @@
   "build": {
     "appId": "com.bunkmate.pro",
     "productName": "BunkMate Pro",
+    "copyright": "Copyright © 2026 BunkMate Pro Team",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
     "files": [
       "dist/**",
       "dist-electron/**"
@@ -99,8 +101,39 @@
     ],
     "asar": false,
     "compression": "maximum",
+    "protocols": [
+      {
+        "name": "BunkMate Pro Protocol",
+        "schemes": [
+          "bunkmate"
+        ]
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "bunkmate",
+        "name": "BunkMate Attendance Database Backup",
+        "description": "BunkMate Pro Attendance & Exam Database Backup",
+        "icon": "build/icon.png",
+        "role": "Editor"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "BunkMate Pro",
+      "uninstallDisplayName": "${productName} ${version} (Uninstall)",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh"
+    },
     "win": {
-      "target": "nsis",
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.png"
     },
     "linux": {
@@ -111,8 +144,15 @@
       ],
       "icon": "build/icon.png",
       "category": "Education",
+      "desktop": {
+        "entry": {
+          "Categories": "Education;Office;Utility;",
+          "Keywords": "attendance;christ;espro;college;planner;timetable;"
+        }
+      },
       "maintainer": "BunkMate Pro Team <thorjs24@github.com>",
-      "synopsis": "Offline attendance tracker & ESPRO live sync engine for CHRIST University students"
+      "synopsis": "Offline attendance tracker & ESPRO live sync engine for CHRIST University students",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "directories": {
       "output": "release"
