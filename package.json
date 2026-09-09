@@ -25,7 +25,7 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.2",
+    "@napi-rs/canvas": "^1.0.8",
     "@radix-ui/react-tooltip": "^1.2.16",
     "better-sqlite3": "^12.11.1",
     "electron-updater": "^6.8.9",
