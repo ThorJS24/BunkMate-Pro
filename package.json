@@ -103,6 +103,17 @@
       "target": "nsis",
       "icon": "build/icon.png"
     },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
+      "icon": "build/icon.png",
+      "category": "Education",
+      "maintainer": "BunkMate Pro Team <thorjs24@github.com>",
+      "synopsis": "Offline attendance tracker & ESPRO live sync engine for CHRIST University students"
+    },
     "directories": {
       "output": "release"
     }
