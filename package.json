@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ThorJS24/HolyAttendance.git"
+    "url": "https://github.com/ThorJS24/BunkMate-Pro.git"
   },
   "main": "dist-electron/main.cjs",
   "scripts": {

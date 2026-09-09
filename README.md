@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="build/icon.png" width="96" height="96" alt="HolyAttendance icon — a halo over a checkmark" />
+<img src="build/icon.png" width="96" height="96" alt="BunkMate Pro icon — a halo over a checkmark" />
 
 # BunkMate Pro
 
@@ -8,8 +8,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](package.json)
-[![CI Status](https://github.com/ThorJS24/HolyAttendance/actions/workflows/ci.yml/badge.svg)](https://github.com/ThorJS24/HolyAttendance/actions)
-[![Latest Release](https://img.shields.io/github/v/release/ThorJS24/HolyAttendance)](https://github.com/ThorJS24/HolyAttendance/releases/tag/v2.1.0)
+[![CI Status](https://github.com/ThorJS24/BunkMate-Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/ThorJS24/BunkMate-Pro/actions)
+[![Latest Release](https://img.shields.io/github/v/release/ThorJS24/BunkMate-Pro)](https://github.com/ThorJS24/BunkMate-Pro/releases/tag/v2.1.0)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](#getting-started)
 [![Built with Electron](https://img.shields.io/badge/Electron-43-9feaf9?logo=electron&logoColor=black)](https://www.electronjs.org/)
 [![Built with React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -104,8 +104,8 @@ BunkMate Pro is an offline-first desktop app and ESPRO live sync engine that tel
 ### Installation
 
 ```bash
-git clone https://github.com/ThorJS24/HolyAttendance.git
-cd HolyAttendance
+git clone https://github.com/ThorJS24/BunkMate-Pro.git
+cd BunkMate-Pro
 npm install
 ```
 
@@ -123,7 +123,7 @@ This rebuilds `better-sqlite3` for Electron's ABI, then launches Vite + Electron
 npm run package
 ```
 
-Produces a Windows NSIS installer under `release/`.
+Produces Windows (`.exe` NSIS installer) and Linux (`.AppImage`, `.deb`, `.tar.gz`) packages under `release/`.
 
 ## Available Scripts
 
@@ -140,7 +140,7 @@ Produces a Windows NSIS installer under `release/`.
 ## Project Structure
 
 ```
-HolyAttendance/
+BunkMate-Pro/
 ├─ electron/                  # Main process (Node context, has DB/filesystem access)
 │  ├─ db/
 │  │  ├─ migrations/          # Generated Drizzle SQL migrations
@@ -204,7 +204,7 @@ Switching contexts (e.g. running `npm test` right after `npm run dev`) triggers 
 
 - **ESPRO sync is unfinished.** Encrypted credential storage works and is verified; the actual login flow and attendance-table parsing are scaffolding waiting on a confirmed portal HTML sample (see the `TODO`s in `electron/espro/`).
 - **Reminders only fire while the app is running.** Class and exam notifications are a main-process background check, not a true OS-level background service — if BunkMate is fully quit (not just closed to tray), nothing fires until it's reopened.
-- **Windows-only packaging today.** `electron-builder` is only configured with a `win`/NSIS target; macOS/Linux would need their own `build` config added.
+- **Cross-platform packaging supported.** `electron-builder` builds targets for Windows (`.exe` NSIS installer) and Linux (`.AppImage`, `.deb`, `.tar.gz`) out of the box.
 
 ## Contributing
 
