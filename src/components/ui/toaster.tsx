@@ -22,6 +22,12 @@ export function Toaster() {
           <div className="flex-1 space-y-1">
             <p className="text-sm font-medium">{toast.title}</p>
             {toast.description && <p className="text-sm opacity-90">{toast.description}</p>}
+            {toast.detail && (
+              <details className="text-xs opacity-75">
+                <summary className="cursor-pointer select-none">Show details</summary>
+                <p className="mt-1 font-mono break-words">{toast.detail}</p>
+              </details>
+            )}
             {toast.action && (
               <Button
                 size="sm"

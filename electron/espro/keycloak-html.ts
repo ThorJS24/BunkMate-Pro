@@ -13,14 +13,22 @@
  * query params).
  */
 export function extractLoginFormAction(html: string): string | null {
-  const m = /<form[^>]*\bid="kc-form-login"[^>]*\baction="([^"]+)"/.exec(html)
+  // 1. Check for form with id="kc-form-login" (action attribute before or after id)
+  let m = /<form\b[^>]*\bid=["']?kc-form-login["']?[^>]*\baction=["']([^"']+)["']/i.exec(html)
+  if (!m) {
+    m = /<form\b[^>]*\baction=["']([^"']+)["'][^>]*\bid=["']?kc-form-login["']?/i.exec(html)
+  }
+  // 2. Fallback: Match any form on the page that has an action attribute
+  if (!m) {
+    m = /<form\b[^>]*\baction=["']([^"']+)["']/i.exec(html)
+  }
   if (!m) return null
   return m[1].replace(/&amp;/g, '&')
 }
 
 /** True when the response body is (still) the Keycloak login form — i.e. login was rejected and the same page was re-rendered. */
 export function isKeycloakLoginFormResponse(html: string): boolean {
-  return /\bid="kc-form-login"/.test(html)
+  return /\bid=["']?kc-form-login["']?/i.test(html) || /type=["']password["']/i.test(html)
 }
 
 /**
@@ -30,9 +38,18 @@ export function isKeycloakLoginFormResponse(html: string): boolean {
  * it server-side into the Location header value itself.
  */
 export function extractFragmentCode(locationHeader: string): { code: string; state: string } | null {
+  let paramStr = ''
   const hashIdx = locationHeader.indexOf('#')
-  if (hashIdx === -1) return null
-  const params = new URLSearchParams(locationHeader.slice(hashIdx + 1))
+  if (hashIdx !== -1) {
+    paramStr = locationHeader.slice(hashIdx + 1)
+  } else {
+    const qIdx = locationHeader.indexOf('?')
+    if (qIdx !== -1) {
+      paramStr = locationHeader.slice(qIdx + 1)
+    }
+  }
+  if (!paramStr) return null
+  const params = new URLSearchParams(paramStr)
   const code = params.get('code')
   const state = params.get('state')
   if (!code || !state) return null

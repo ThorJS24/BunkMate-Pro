@@ -1,42 +1,30 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CalendarDays, ShieldCheck, Flame, GripVertical, RotateCcw } from 'lucide-react'
 import ReactGridLayout, { WidthProvider } from 'react-grid-layout/legacy'
 import 'react-grid-layout/css/styles.css'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Sparkline } from '@/components/ui/sparkline'
 import { SemesterSwitcher } from '@/components/semester-switcher'
-import { EsproComparisonTable } from '@/components/espro-comparison-table'
-import type { EsproStatus } from '../../electron/espro/types'
-import type { AttendanceComparisonRow } from '../../electron/espro/attendance-totals'
+import { QuickEsproSyncButton } from '@/components/quick-espro-sync'
+import { OnboardingChecklist } from '@/components/onboarding-checklist'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useHolidaysStore } from '@/store/holidays-store'
 import { useTimetableStore } from '@/store/timetable-store'
 import { useSemestersStore } from '@/store/semesters-store'
-import { useExamsStore } from '@/store/exams-store'
 import { useAttendance } from '@/hooks/use-attendance'
 import { computeSafeBunkCount, resolveSubjectMinTarget, jsDayToWeekday } from '@/lib/attendance-engine'
 import { computeProjection, cumulativeAttendanceSeries, computeRecoveryPlan } from '@/lib/insights'
-import { computeWeekShape } from '@/lib/timetable-week-shape'
-import type { Weekday } from '@/db/schema'
-import { todayIso, countdownLabel } from '@/lib/date-utils'
+import { computeAchievements } from '@/lib/achievements'
+import { AchievementsStrip } from '@/components/achievements-strip'
+import { todayIso } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import { useDashboardLayoutStore, resolveDashboardLayout } from '@/store/dashboard-layout-store'
 
 const GridLayout = WidthProvider(ReactGridLayout)
-
-const DAY_LABELS: Record<Weekday, string> = {
-  mon: 'Mon',
-  tue: 'Tue',
-  wed: 'Wed',
-  thu: 'Thu',
-  fri: 'Fri',
-  sat: 'Sat',
-}
 
 function percentColor(percent: number | null, target: number, atRiskMarginPp: number): string {
   if (percent === null) return 'text-muted-foreground'
@@ -74,13 +62,7 @@ export function DashboardPage() {
   const { holidays, load: loadHolidays } = useHolidaysStore()
   const { slots, load: loadSlots } = useTimetableStore()
   const { semesters, load: loadSemesters } = useSemestersStore()
-  const { exams, load: loadExams } = useExamsStore()
   const { layout: storedLayout, setLayout, resetLayout } = useDashboardLayoutStore()
-
-  const [esproStatus, setEsproStatus] = useState<EsproStatus | null>(null)
-  const [esproComparing, setEsproComparing] = useState(false)
-  const [esproRows, setEsproRows] = useState<AttendanceComparisonRow[] | null>(null)
-  const [esproError, setEsproError] = useState<string | null>(null)
 
   const semester = currentSemester || null
   const {
@@ -98,59 +80,20 @@ export function DashboardPage() {
     loadSubjects({ includeArchived: false })
     loadHolidays()
     loadSemesters()
-    window.bunkmate.espro.getStatus().then(setEsproStatus).catch(() => setEsproStatus(null))
   }, [loadSubjects, loadHolidays, loadSemesters])
 
-  async function handleCompareEspro() {
-    if (!semester) return
-    setEsproComparing(true)
-    setEsproError(null)
-    try {
-      setEsproRows(await window.bunkmate.espro.compareAttendance(semester))
-    } catch (err) {
-      setEsproError(err instanceof Error ? err.message : 'Something went wrong.')
-    } finally {
-      setEsproComparing(false)
-    }
-  }
-
   useEffect(() => {
-    if (semester) {
-      loadSlots(semester)
-      loadExams({ semester })
-    }
-  }, [loadSlots, loadExams, semester])
+    if (semester) loadSlots(semester)
+  }, [loadSlots, semester])
 
   const today = todayIso()
   const todayWeekday = jsDayToWeekday(today)
   const todayHoliday = holidays.find((h) => h.date === today && h.type !== 'working_saturday')
-
-  const subjectsById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
-
-  const todaysClasses = useMemo(() => {
-    if (!todayWeekday) return []
-    return slots
-      .filter((s) => s.day === todayWeekday)
-      .sort((a, b) => a.period - b.period)
-      .map((s) => ({ ...s, subjectName: s.subjectId ? subjectsById.get(s.subjectId)?.name : undefined }))
-  }, [slots, todayWeekday, subjectsById])
-
-  const upcomingHolidays = useMemo(
-    () =>
-      holidays
-        .filter((h) => h.date >= today)
-        .sort((a, b) => (a.date < b.date ? -1 : 1))
-        .slice(0, 5),
-    [holidays, today],
-  )
-
-  const upcomingExams = useMemo(
-    () =>
-      exams
-        .filter((e) => e.date >= today)
-        .sort((a, b) => (a.date < b.date ? -1 : 1))
-        .slice(0, 5),
-    [exams, today],
+  // Just the count for the compact "Today" tile — the full list with
+  // subject names and marking lives on the Today page.
+  const todayPeriodCount = useMemo(
+    () => (todayWeekday ? slots.filter((s) => s.day === todayWeekday).length : 0),
+    [slots, todayWeekday],
   )
 
   const subjectRows = useMemo(
@@ -200,45 +143,68 @@ export function DashboardPage() {
     [overall, remainingOverall, overallMinTarget],
   )
 
-  const activeSemester = useMemo(() => semesters.find((s) => s.label === semester), [semesters, semester])
-  const weekShape = useMemo(
-    () => computeWeekShape({ slots, periodTimes: activeSemester?.periodTimes ?? [] }),
-    [slots, activeSemester],
-  )
-  const maxTeachingCount = useMemo(
-    () => Math.max(1, ...weekShape.days.map((d) => d.teachingCount)),
-    [weekShape],
-  )
+  const achievements = useMemo(() => {
+    const sevenDaysAgo = (() => {
+      const d = new Date(`${today}T00:00:00Z`)
+      d.setUTCDate(d.getUTCDate() - 6)
+      return d.toISOString().slice(0, 10)
+    })()
+    const last7DaysStatuses = Array.from(recordsBySubject.values())
+      .flat()
+      .filter((r) => r.date >= sevenDaysAgo && r.date <= today)
+      .sort((a, b) => (a.date === b.date ? a.period - b.period : a.date < b.date ? -1 : 1))
+      .map((r) => r.status)
+    const totalPresentThisSemester = subjectRows.reduce((sum, r) => sum + r.overallStats.attended, 0)
+    return computeAchievements({
+      last7DaysStatuses,
+      overallPercentage: overall.percentage,
+      overallMinTarget,
+      subjects: subjectRows.map((r) => ({ percentage: r.overallStats.percentage, target: r.resolvedTarget })),
+      bestCurrentStreak: bestStreak,
+      totalPresentThisSemester,
+    })
+  }, [recordsBySubject, today, overall, overallMinTarget, subjectRows, bestStreak])
 
-  const showEspro = esproStatus?.hasCredential === true
-  const visibleTileIds = useMemo(
-    () =>
-      [
-        'overall',
-        'below-target',
-        'today-count',
-        showEspro && 'espro',
-        'subjects',
-        'today-classes',
-        'week-shape',
-        'upcoming-exams',
-        'upcoming-holidays',
-      ].filter((id): id is string => Boolean(id)),
-    [showEspro],
-  )
+  const visibleTileIds = useMemo(() => ['overall', 'below-target', 'today-count', 'subjects'], [])
   const layout = useMemo(() => resolveDashboardLayout(storedLayout, visibleTileIds), [storedLayout, visibleTileIds])
+
+  // Nothing useful to show yet — a wall of empty/"—" tiles is worse than no
+  // dashboard at all for a first-time user. Once a semester, subjects, and a
+  // timetable exist, the real dashboard has real numbers to show.
+  const semesterSubjects = subjects.filter((s) => s.semester === semester)
+  const isOnboarded = semesters.length > 0 && semesterSubjects.length > 0 && slots.some((s) => s.type !== 'lunch')
+
+  if (!isOnboarded) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <SemesterSwitcher />
+        </div>
+        <div className="mx-auto max-w-md pt-8">
+          <p className="mb-4 text-center text-sm text-muted-foreground">
+            Your dashboard will show live attendance stats, projections, and more once you've set a few things up.
+          </p>
+          <OnboardingChecklist />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex items-center gap-3">
+          <QuickEsproSyncButton variant="default" size="sm" />
           <Button variant="outline" size="sm" onClick={resetLayout} title="Restore the default tile arrangement">
             <RotateCcw /> Reset layout
           </Button>
           <SemesterSwitcher />
         </div>
       </div>
+
+      <AchievementsStrip achievements={achievements} />
 
       <GridLayout
         className="layout"
@@ -255,7 +221,15 @@ export function DashboardPage() {
           <DashboardTile>
             <Card className="h-full">
               <CardHeader>
-                <CardDescription>Overall attendance</CardDescription>
+                <div className="flex items-center justify-between gap-2">
+                  <CardDescription>Overall attendance</CardDescription>
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                    title="Calculates approved Yellow Forms & ESPRO duty leave as present/excused"
+                  >
+                    <ShieldCheck className="size-3" /> Includes Yellow Forms
+                  </span>
+                </div>
                 <CardTitle className={cn('text-3xl tabular-nums', percentColor(overall.percentage, overallMinTarget, atRiskMarginPp))}>
                   {overall.percentage === null ? '—' : `${overall.percentage.toFixed(1)}%`}
                 </CardTitle>
@@ -271,7 +245,7 @@ export function DashboardPage() {
                       title={`If you attend all ${remainingOverall} remaining periods you finish at ${overallProjection.ifAllAttended.toFixed(1)}%; if none, ${overallProjection.ifNoneAttended?.toFixed(1)}%.`}
                     >
                       Projected {overallProjection.ifNoneAttended?.toFixed(0)}–{overallProjection.ifAllAttended.toFixed(0)}%
-                      by term end
+                      by term end (worst–best case)
                     </span>
                   )}
                   {bestStreak >= 3 && (
@@ -312,7 +286,7 @@ export function DashboardPage() {
                 <CardDescription className="flex items-center gap-1">
                   <CalendarDays className="size-3.5" /> Today
                 </CardDescription>
-                <CardTitle className="text-3xl tabular-nums">{todaysClasses.length}</CardTitle>
+                <CardTitle className="text-3xl tabular-nums">{todayPeriodCount}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
@@ -323,57 +297,26 @@ export function DashboardPage() {
           </DashboardTile>
         </div>
 
-        {showEspro && (
-          <div key="espro">
-            <DashboardTile scrollable>
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle>ESPRO comparison</CardTitle>
-                  <CardDescription>
-                    Official totals from ESPRO next to BunkMate's own numbers. This only compares: nothing here is
-                    imported or changes your records.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!esproStatus?.sessionId ? (
-                    <p className="text-sm text-muted-foreground">
-                      Add your ESPRO session/term number in{' '}
-                      <Link to="/settings" className="underline">
-                        Settings
-                      </Link>{' '}
-                      to enable this.
-                    </p>
-                  ) : (
-                    <>
-                      <Button onClick={handleCompareEspro} disabled={esproComparing || !semester}>
-                        {esproComparing ? 'Comparing…' : 'Compare with ESPRO'}
-                      </Button>
-                      {esproError && <p className="text-sm text-destructive">{esproError}</p>}
-                      {esproRows && <EsproComparisonTable rows={esproRows} />}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </DashboardTile>
-          </div>
-        )}
-
         <div key="subjects">
-          <DashboardTile scrollable>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Subject-wise attendance</CardTitle>
-                <CardDescription>Live, computed from attendance records: never stored.</CardDescription>
+          <DashboardTile>
+            <Card className="flex h-full flex-col overflow-hidden">
+              <CardHeader className="shrink-0 flex flex-row items-center justify-between pb-3">
+                <div>
+                  <CardTitle>Subject-wise attendance</CardTitle>
+                  <CardDescription className="mt-0.5 text-xs text-muted-foreground">
+                    Calculated with approved Yellow Forms & ESPRO duty leave included
+                  </CardDescription>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex-1 overflow-y-auto space-y-3 pr-4">
                 {subjectRows.length === 0 && (
                   <p className="text-sm text-muted-foreground">
                     No subjects yet. <Link to="/subjects" className="underline">Add one</Link>.
                   </p>
                 )}
                 {subjectRows.map(({ subject, overallStats, resolvedTarget, safeBunks, streak, projection, series, recovery }) => (
-                  <div key={subject.id} className="space-y-1">
-                    <div className="flex items-center justify-between gap-2 text-sm">
+                  <div key={subject.id} className="rounded-lg border border-border/60 bg-card/40 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="truncate font-medium">{subject.name}</span>
                         {streak >= 3 && (
@@ -386,15 +329,15 @@ export function DashboardPage() {
                           </span>
                         )}
                       </span>
-                      <span className="flex shrink-0 items-center gap-2">
+                      <span className="flex shrink-0 items-center gap-2.5">
                         <Sparkline values={series} className="hidden sm:block" />
-                        <span className={cn('tabular-nums', percentColor(overallStats.percentage, resolvedTarget, atRiskMarginPp))}>
+                        <span className={cn('tabular-nums font-semibold', percentColor(overallStats.percentage, resolvedTarget, atRiskMarginPp))}>
                           {overallStats.percentage === null ? '—' : `${overallStats.percentage.toFixed(1)}%`}
                         </span>
                       </span>
                     </div>
                     <Progress value={overallStats.percentage ?? 0} />
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>
                         {overallStats.attended} / {overallStats.total} periods
                       </span>
@@ -407,11 +350,11 @@ export function DashboardPage() {
                               ? projection.targetReachable
                                 ? `${projection.classesNeededForTarget} of ${projection.remaining} left to hit ${resolvedTarget}%`
                                 : `Can't reach ${resolvedTarget}% this term`
-                              : `Projected ${projection.ifNoneAttended?.toFixed(0)}–${projection.ifAllAttended.toFixed(0)}%`}
+                              : `Projected ${projection.ifNoneAttended?.toFixed(0)}–${projection.ifAllAttended.toFixed(0)}% (worst–best)`}
                           </span>
                         )}
-                        <span className="flex items-center gap-1">
-                          <ShieldCheck className="size-3" /> {safeBunks} safe bunk{safeBunks === 1 ? '' : 's'}
+                        <span className="flex items-center gap-1 font-medium text-foreground/80">
+                          <ShieldCheck className="size-3 text-emerald-500" /> {safeBunks} safe bunk{safeBunks === 1 ? '' : 's'}
                         </span>
                       </span>
                     </div>
@@ -429,129 +372,6 @@ export function DashboardPage() {
           </DashboardTile>
         </div>
 
-        <div key="today-classes">
-          <DashboardTile scrollable>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Today&apos;s classes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {todayHoliday && (
-                  <Badge variant="warning">Holiday: {todayHoliday.label ?? todayHoliday.type}</Badge>
-                )}
-                {!todayHoliday && todaysClasses.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No classes scheduled today.</p>
-                )}
-                {!todayHoliday &&
-                  todaysClasses.map((slot) => (
-                    <div key={slot.id} className="flex items-center justify-between text-sm">
-                      <span>
-                        P{slot.period} · {slot.subjectName ?? slot.type}
-                      </span>
-                      <Badge variant="outline">{slot.type}</Badge>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
-          </DashboardTile>
-        </div>
-
-        <div key="week-shape">
-          <DashboardTile>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Week shape</CardTitle>
-                <CardDescription>Teaching periods per day</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-1.5">
-                {weekShape.days.every((d) => d.teachingCount === 0) ? (
-                  <p className="text-sm text-muted-foreground">
-                    No timetable yet. <Link to="/timetable" className="underline">Build one</Link>.
-                  </p>
-                ) : (
-                  weekShape.days.map((d) => (
-                    <div key={d.day} className="flex items-center gap-2 text-xs">
-                      <span
-                        className={cn(
-                          'w-8 shrink-0 font-medium',
-                          weekShape.heaviestDay === d.day && 'text-destructive',
-                          weekShape.lightestDay === d.day && 'text-success',
-                        )}
-                      >
-                        {DAY_LABELS[d.day]}
-                      </span>
-                      <div className="h-3 flex-1 overflow-hidden rounded-sm bg-muted">
-                        <div
-                          className="h-full rounded-sm bg-primary/70"
-                          style={{ width: `${(d.teachingCount / maxTeachingCount) * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-16 shrink-0 text-right tabular-nums text-muted-foreground">
-                        {d.teachingCount === 0
-                          ? '—'
-                          : d.totalMinutes !== null
-                            ? `${(d.totalMinutes / 60).toFixed(d.totalMinutes % 60 === 0 ? 0 : 1)}h`
-                            : `${d.teachingCount}p`}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </DashboardTile>
-        </div>
-
-        <div key="upcoming-exams">
-          <DashboardTile scrollable>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Upcoming exams</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {upcomingExams.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No upcoming exams. <Link to="/exams" className="underline">Add one</Link>.
-                  </p>
-                ) : (
-                  upcomingExams.map((exam) => (
-                    <div key={exam.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="min-w-0 truncate">
-                        {exam.name}
-                        {exam.subjectId && subjectsById.get(exam.subjectId) && (
-                          <span className="text-muted-foreground"> · {subjectsById.get(exam.subjectId)?.name}</span>
-                        )}
-                      </span>
-                      <Badge variant={countdownLabel(exam.date) === 'Today' ? 'destructive' : 'warning'} className="shrink-0">
-                        {countdownLabel(exam.date)}
-                      </Badge>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </DashboardTile>
-        </div>
-
-        <div key="upcoming-holidays">
-          <DashboardTile scrollable>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Upcoming holidays</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {upcomingHolidays.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No upcoming holidays on record.</p>
-                )}
-                {upcomingHolidays.map((h) => (
-                  <div key={h.id} className="flex items-center justify-between text-sm">
-                    <span>{h.label ?? h.type}</span>
-                    <span className="text-muted-foreground">{h.date}</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </DashboardTile>
-        </div>
       </GridLayout>
     </div>
   )

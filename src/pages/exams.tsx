@@ -22,11 +22,13 @@ import { useExamsStore } from '@/store/exams-store'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useToastStore } from '@/store/toast-store'
+import { friendlyError } from '@/lib/friendly-error'
 import { countdownLabel, daysUntil, todayIso } from '@/lib/date-utils'
 import { parseHallTicket } from '@/lib/hall-ticket-parser'
 import { groupExams } from '@/lib/exam-grouping'
 import { buildExamsIcs } from '@/lib/exam-ics'
 import { parseIcs } from '@/lib/ics-parser'
+import { IcsUrlImportButton } from '@/components/ics-url-import-button'
 import { icsEventsToExamDrafts } from '@/lib/exams-ics-import'
 import type { Exam } from '../../electron/db/repositories/exams'
 import type { PdfOcrProgress } from '../../electron/ipc/contract'
@@ -239,26 +241,22 @@ export function ExamsPage() {
       setDraftGroup('')
       setDraftOpen(true)
     } catch (err) {
-      pushToast({
-        title: 'Could not read that PDF',
-        description: err instanceof Error ? err.message : 'The file may be encrypted or damaged.',
-      })
+      const fe = friendlyError(err, 'The file may be encrypted or damaged.')
+      pushToast({ title: 'Could not read that PDF', description: fe.message, detail: fe.detail })
     } finally {
       unsubscribe()
       setProgress(null)
     }
   }
 
-  async function handleImportIcs() {
-    const file = await window.bunkmate.files.openTextFile({ filters: [{ name: 'Calendar', extensions: ['ics'] }] })
-    if (!file) return
-    const events = parseIcs(file.content)
+  function handleImportIcsText(text: string, source: string) {
+    const events = parseIcs(text)
     const drafts = icsEventsToExamDrafts(
       events,
       (semesterSubjects.length > 0 ? semesterSubjects : subjects).map((s) => ({ id: s.id, name: s.name })),
     )
     if (drafts.length === 0) {
-      pushToast({ title: 'No exam dates found', description: `Couldn't read any events from ${file.name}.` })
+      pushToast({ title: 'No exam dates found', description: `Couldn't read any events from ${source}.` })
       return
     }
     setDraftRows(
@@ -273,9 +271,15 @@ export function ExamsPage() {
         location: r.location,
       })),
     )
-    setDraftSource(file.name)
+    setDraftSource(source)
     setDraftGroup('')
     setDraftOpen(true)
+  }
+
+  async function handleImportIcs() {
+    const file = await window.bunkmate.files.openTextFile({ filters: [{ name: 'Calendar', extensions: ['ics'] }] })
+    if (!file) return
+    handleImportIcsText(file.content, file.name)
   }
 
   function updateDraftRow(key: string, patch: Partial<DraftRow>) {
@@ -350,7 +354,11 @@ export function ExamsPage() {
     const target = deleteTarget
     await remove(target.id)
     setDeleteTarget(null)
-    pushToast({ title: 'Exam deleted', description: target.name })
+    const { id: _id, createdAt: _createdAt, ...rest } = target
+    pushToast(
+      { title: 'Exam deleted', description: target.name, action: { label: 'Undo', onClick: () => create(rest) } },
+      8000,
+    )
   }
 
   if (!semester) {
@@ -379,6 +387,7 @@ export function ExamsPage() {
           <Button variant="outline" onClick={handleImportIcs} title="Import exam dates from an academic calendar (.ics)">
             <FileUp /> Import .ics
           </Button>
+          <IcsUrlImportButton onIcsText={handleImportIcsText} />
           <Button onClick={openCreate}>
             <Plus /> Add exam
           </Button>

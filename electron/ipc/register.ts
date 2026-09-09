@@ -1,12 +1,14 @@
-import { ipcMain, dialog, app } from 'electron'
+import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
 import fs from 'node:fs'
+import { crashLogPath, appendCrashLog } from '../crash-log'
 import { extractHallTicketText } from '../hall-ticket-ocr'
 import { extractPdfText } from '../pdf-text'
 import { getEsproStatus, saveEsproCredential, removeEsproCredential, saveEsproSessionId } from '../espro/credential-store'
-import { esproCompareAttendance } from '../espro/sync'
+import { esproCompareAttendance, esproSyncAttendance, esproGetDayPeriodDetail, esproAutoImportFullStudentData } from '../espro/sync'
 import type { AppDatabase } from '../db/client'
 import { IPC_CHANNELS } from './contract'
 import { backupNow, restoreFrom, defaultBackupFileName } from '../backup'
+import { toggleMiniWindow } from '../mini-window'
 import {
   semestersRepo,
   subjectsRepo,
@@ -18,9 +20,29 @@ import {
   yellowFormsRepo,
   settingsRepo,
   periodTypeRulesRepo,
+  sampleDataRepo,
+  clearDataRepo,
 } from '../db/repositories'
 
-export function registerIpcHandlers(db: AppDatabase): void {
+// Passing the owning BrowserWindow makes these proper modal children —
+// always on top of the app window and correctly focused. Without it,
+// Electron's dialogs are non-modal and can end up unfocused or hidden
+// behind the main window depending on the window manager, which reads to
+// the user as "I picked a file and nothing happened."
+function showOpenDialog(win: BrowserWindow | null, options: Electron.OpenDialogOptions) {
+  return win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)
+}
+function showSaveDialog(win: BrowserWindow | null, options: Electron.SaveDialogOptions) {
+  return win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options)
+}
+
+export function registerIpcHandlers(
+  db: AppDatabase,
+  userDataDir: string,
+  crashLogState: { enabled: boolean },
+  getWindow: () => BrowserWindow | null,
+  focusModeState: { active: boolean },
+): void {
   ipcMain.handle(IPC_CHANNELS.semestersList, () => semestersRepo.listSemesters(db))
   ipcMain.handle(IPC_CHANNELS.semestersCreate, (_e, input) => semestersRepo.createSemester(db, input))
   ipcMain.handle(IPC_CHANNELS.semestersUpdate, (_e, id: number, input) =>
@@ -30,6 +52,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
     semestersRepo.setSemesterArchived(db, id, archived),
   )
   ipcMain.handle(IPC_CHANNELS.semestersDelete, (_e, id: number) => semestersRepo.deleteSemester(db, id))
+  ipcMain.handle(IPC_CHANNELS.semestersDeleteCascade, (_e, id: number) => semestersRepo.deleteSemesterCascade(db, id))
   ipcMain.handle(IPC_CHANNELS.semestersGetDependents, (_e, label: string) =>
     semestersRepo.getSemesterDependents(db, label),
   )
@@ -116,7 +139,37 @@ export function registerIpcHandlers(db: AppDatabase): void {
   )
 
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => settingsRepo.getSettings(db))
-  ipcMain.handle(IPC_CHANNELS.settingsUpdate, (_e, input) => settingsRepo.updateSettings(db, input))
+  ipcMain.handle(IPC_CHANNELS.settingsUpdate, (_e, input) => {
+    const updated = settingsRepo.updateSettings(db, input)
+    if (input.crashLogEnabled !== undefined) crashLogState.enabled = input.crashLogEnabled
+    return updated
+  })
+
+  ipcMain.handle(IPC_CHANNELS.sampleDataCreate, () => sampleDataRepo.createSampleData(db))
+
+  ipcMain.handle(IPC_CHANNELS.clearAllData, () => clearDataRepo.clearAllData(db))
+
+  ipcMain.handle(IPC_CHANNELS.focusModeSet, (_e, active: boolean) => {
+    focusModeState.active = active
+  })
+
+  ipcMain.handle(IPC_CHANNELS.miniWindowToggle, () => {
+    toggleMiniWindow()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.crashLogRecord, (_e, message: string) => {
+    if (!crashLogState.enabled) return
+    try {
+      appendCrashLog(userDataDir, `Unhandled render error: ${message}`)
+    } catch {
+      // Logging must never be why reporting a crash fails too.
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.crashLogOpenFolder, () => {
+    const logPath = crashLogPath(userDataDir)
+    if (fs.existsSync(logPath)) shell.showItemInFolder(logPath)
+    else shell.openPath(userDataDir)
+  })
 
   ipcMain.handle(IPC_CHANNELS.periodTypeRulesList, () => periodTypeRulesRepo.listPeriodTypeRules(db))
   ipcMain.handle(IPC_CHANNELS.periodTypeRulesSetBucket, (_e, type, bucket) =>
@@ -129,7 +182,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
       _e,
       opts: { defaultName: string; content: ArrayBuffer | string; filters: { name: string; extensions: string[] }[] },
     ) => {
-      const result = await dialog.showSaveDialog({ defaultPath: opts.defaultName, filters: opts.filters })
+      const result = await showSaveDialog(getWindow(), { defaultPath: opts.defaultName, filters: opts.filters })
       if (result.canceled || !result.filePath) return null
       const data = typeof opts.content === 'string' ? opts.content : Buffer.from(opts.content)
       fs.writeFileSync(result.filePath, data)
@@ -140,7 +193,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
   ipcMain.handle(
     IPC_CHANNELS.filesOpenTextFile,
     async (_e, opts: { filters: { name: string; extensions: string[] }[] }) => {
-      const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: opts.filters })
+      const result = await showOpenDialog(getWindow(), { properties: ['openFile'], filters: opts.filters })
       if (result.canceled || result.filePaths.length === 0) return null
       const filePath = result.filePaths[0]
       return { name: filePath.split(/[\\/]/).pop() ?? filePath, content: fs.readFileSync(filePath, 'utf8') }
@@ -148,7 +201,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
   )
 
   ipcMain.handle(IPC_CHANNELS.filesOpenPdfText, async (event) => {
-    const result = await dialog.showOpenDialog({
+    const result = await showOpenDialog(getWindow(), {
       properties: ['openFile'],
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     })
@@ -164,7 +217,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.filesOpenDigitalPdfText, async () => {
-    const result = await dialog.showOpenDialog({
+    const result = await showOpenDialog(getWindow(), {
       properties: ['openFile'],
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     })
@@ -174,8 +227,44 @@ export function registerIpcHandlers(db: AppDatabase): void {
     return { name: filePath.split(/[\\/]/).pop() ?? filePath, text }
   })
 
+  ipcMain.handle(IPC_CHANNELS.filesFetchTextUrl, async (_e, url: string) => {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error('That doesn\'t look like a valid URL.')
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Only http(s) links are supported.')
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15_000)
+    let res: Response
+    try {
+      res = await fetch(parsed, { signal: controller.signal })
+    } catch {
+      throw new Error("Couldn't reach that link. Check the URL and your internet connection.")
+    } finally {
+      clearTimeout(timeout)
+    }
+    if (!res.ok) throw new Error(`That link returned an error (HTTP ${res.status}).`)
+
+    // A generous but real cap — a calendar feed is text and should be well
+    // under this; guards against an unexpectedly huge response (wrong URL,
+    // a redirect to something that isn't a calendar) tying up memory.
+    const MAX_BYTES = 5 * 1024 * 1024
+    const contentLength = res.headers.get('content-length')
+    if (contentLength && Number(contentLength) > MAX_BYTES) {
+      throw new Error('That file is larger than expected for a calendar — double-check the link.')
+    }
+    const text = await res.text()
+    if (text.length > MAX_BYTES) throw new Error('That file is larger than expected for a calendar — double-check the link.')
+    return text
+  })
+
   ipcMain.handle(IPC_CHANNELS.backupNow, async () => {
-    const result = await dialog.showSaveDialog({
+    const result = await showSaveDialog(getWindow(), {
       defaultPath: defaultBackupFileName(),
       filters: [{ name: 'SQLite database', extensions: ['db'] }],
     })
@@ -186,11 +275,16 @@ export function registerIpcHandlers(db: AppDatabase): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.backupRestore, async () => {
-    const result = await dialog.showOpenDialog({
+    const result = await showOpenDialog(getWindow(), {
+      title: 'Choose a BunkMate backup file',
       properties: ['openFile'],
       filters: [{ name: 'SQLite database', extensions: ['db'] }],
     })
     if (result.canceled || result.filePaths.length === 0) return false
+    // Any throw here (bad file, locked file, disk error) propagates as a
+    // rejected promise — restoreFrom validates the file BEFORE touching the
+    // live database, so a bad pick leaves the current data untouched rather
+    // than half-torn-down.
     restoreFrom(result.filePaths[0])
     app.relaunch()
     app.exit(0)
@@ -198,7 +292,7 @@ export function registerIpcHandlers(db: AppDatabase): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.backupChooseDir, async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    const result = await showOpenDialog(getWindow(), { properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
@@ -214,4 +308,26 @@ export function registerIpcHandlers(db: AppDatabase): void {
   ipcMain.handle(IPC_CHANNELS.esproCompareAttendance, (_e, semesterLabel: string) =>
     esproCompareAttendance(db, app.getPath('userData'), semesterLabel),
   )
+  ipcMain.handle(IPC_CHANNELS.esproSyncAttendance, (_e, semesterLabel: string) =>
+    esproSyncAttendance(db, app.getPath('userData'), semesterLabel),
+  )
+  ipcMain.handle(IPC_CHANNELS.esproGetDayPeriodDetail, (_e, semesterLabel: string, date: string) =>
+    esproGetDayPeriodDetail(db, app.getPath('userData'), semesterLabel, date),
+  )
+  ipcMain.handle(IPC_CHANNELS.esproAutoImport, (_e, semesterLabel: string) =>
+    esproAutoImportFullStudentData(db, app.getPath('userData'), semesterLabel),
+  )
+
+  ipcMain.handle(IPC_CHANNELS.updaterCheckForUpdates, async () => {
+    const { checkForUpdates } = await import('../auto-updater')
+    return checkForUpdates()
+  })
+  ipcMain.handle(IPC_CHANNELS.updaterDownloadUpdate, async () => {
+    const { downloadUpdate } = await import('../auto-updater')
+    return downloadUpdate()
+  })
+  ipcMain.handle(IPC_CHANNELS.updaterQuitAndInstall, async () => {
+    const { quitAndInstall } = await import('../auto-updater')
+    return quitAndInstall()
+  })
 }

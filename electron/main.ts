@@ -6,6 +6,26 @@ import { settingsRepo, periodTypeRulesRepo, semestersRepo } from './db/repositor
 import { runScheduledBackupIfDue } from './backup'
 import { startClassReminders } from './reminders'
 import { createTray } from './tray'
+import { initCrashLogging } from './crash-log'
+import { startEsproBackgroundAutoSync } from './espro/auto-sync'
+import { initAutoUpdater } from './auto-updater'
+
+let stopEsproAutoSync: (() => void) | null = null
+
+// Enforce a single instance lock so launching BunkMate twice focuses the existing window
+// instead of launching a second process that conflicts on the SQLite database lock.
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
 
 // Windows shows native notifications under this identity; without it, toasts
 // from a dev/unsigned build may be suppressed or mis-attributed.
@@ -63,6 +83,24 @@ function createWindow() {
   })
 }
 
+// College Wi-Fi / SSL Inspection handling:
+// Campus Wi-Fi networks (Fortinet, Sophos, Cisco) use custom Root CAs for SSL inspection.
+// Electron's net module uses Windows OS Certificate Store, and certificate-error handles
+// campus certificates for Christ University endpoints seamlessly.
+app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
+  if (
+    url.includes('christuniversity.in') ||
+    url.includes('espro.christuniversity.in') ||
+    url.includes('studentespro.christuniversity.in') ||
+    url.includes('cue.christuniversity.in')
+  ) {
+    event.preventDefault()
+    callback(true)
+    return
+  }
+  callback(false)
+})
+
 app.whenReady().then(() => {
   const userDataDir = app.getPath('userData')
 
@@ -85,9 +123,23 @@ app.whenReady().then(() => {
   settingsRepo.ensureSettingsRow(db)
   periodTypeRulesRepo.ensureDefaultPeriodTypeRules(db)
   semestersRepo.ensureSemestersSeeded(db)
-  registerIpcHandlers(db)
+
+  // A plain mutable flag, not a DB read on every crash: initCrashLogging's
+  // handler runs in exactly the moment something has already gone wrong, so
+  // it shouldn't risk a second failure querying a database that may itself
+  // be implicated. registerIpcHandlers keeps this in sync whenever the
+  // setting changes via Settings.
+  const crashLogState = { enabled: settingsRepo.getSettings(db).crashLogEnabled }
+  initCrashLogging(userDataDir, () => crashLogState.enabled)
+
+  // While active (a running Pomodoro work session — see the renderer's
+  // PomodoroTimer), class/exam reminders skip firing rather than queueing.
+  const focusModeState = { active: false }
+
+  registerIpcHandlers(db, userDataDir, crashLogState, () => mainWindow, focusModeState)
   runScheduledBackupIfDue(db)
-  stopReminders = startClassReminders(db)
+  stopReminders = startClassReminders(db, focusModeState)
+  stopEsproAutoSync = startEsproBackgroundAutoSync(db, userDataDir, () => mainWindow)
   tray = createTray(
     db,
     () => mainWindow,
@@ -96,6 +148,9 @@ app.whenReady().then(() => {
     },
   )
   createWindow()
+  if (mainWindow) {
+    initAutoUpdater(mainWindow)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -112,6 +167,8 @@ app.on('window-all-closed', () => {
   // it's safe to tear everything down here.
   stopReminders?.()
   stopReminders = null
+  stopEsproAutoSync?.()
+  stopEsproAutoSync = null
   tray?.destroy()
   tray = null
   closeDb()

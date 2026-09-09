@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `weekly_digest_enabled` integer DEFAULT true NOT NULL;

@@ -103,6 +103,10 @@ describe('restoreFrom', () => {
   })
 
   afterEach(() => {
+    // A rejected restoreFrom (bad file, missing file) leaves the live
+    // connection open by design — close it here so Windows doesn't hold a
+    // lock on userDataDir during cleanup.
+    closeDb()
     fs.rmSync(userDataDir, { recursive: true, force: true })
     fs.rmSync(sourceDir, { recursive: true, force: true })
   })
@@ -129,6 +133,27 @@ describe('restoreFrom', () => {
     const rows = restored.prepare('select name from subjects').all() as { name: string }[]
     expect(rows).toEqual([{ name: 'Restored' }])
     restored.close()
+  })
+
+  it('rejects a file that is not a SQLite database, leaving the live data untouched', () => {
+    const db = initDb(userDataDir)
+    subjectsRepo.createSubject(db, { name: 'Original', semester: '2026-1', credits: 3, faculty: null, category: null })
+
+    const badPath = path.join(sourceDir, 'not-a-backup.db')
+    fs.writeFileSync(badPath, 'this is not a sqlite file')
+
+    expect(() => restoreFrom(badPath)).toThrow(/doesn't look like a valid BunkMate backup/)
+
+    // The live database is still open and unchanged — restoreFrom must
+    // validate before calling closeDb(), not after.
+    const rows = subjectsRepo.listSubjects(db)
+    expect(rows.map((r) => r.name)).toEqual(['Original'])
+  })
+
+  it('rejects a path that does not exist', () => {
+    initDb(userDataDir)
+    const missingPath = path.join(sourceDir, 'nope.db')
+    expect(() => restoreFrom(missingPath)).toThrow(/not found/)
   })
 })
 

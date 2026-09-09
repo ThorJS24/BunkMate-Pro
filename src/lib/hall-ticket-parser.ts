@@ -120,23 +120,31 @@ function fourDigitYear(y: number): number {
 
 /** Finds the first plausible date on a line and returns it in ISO form. */
 export function findDate(line: string): FoundDate | null {
+  // Pre-normalize common OCR character misreads (e.g. '|', 'I', or 'l' in numeric dates, 'O' in place of '0')
+  const normalizedLine = line
+    .replace(/([/.\-])[I|l](\d)/gi, '$11$2')
+    .replace(/(\d)[I|l]([/.\-])/gi, '$11$2')
+    .replace(/([/.\-])O(\d)/gi, '$10$2')
+    .replace(/(\d)O([/.\-])/gi, '$10$2')
+    .replace(/\b(\d{1,2})[I|l](\d{1,2})\b/g, '$1/$2')
+
   // 1. ISO-ish yyyy-mm-dd (4-digit lead) — unambiguous, try first.
-  let m = line.match(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/)
+  let m = normalizedLine.match(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/)
   if (m) {
     const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
     if (isValidYmd(y, mo, d)) return { iso: `${y}-${pad(mo)}-${pad(d)}`, match: m[0] }
   }
 
-  // 2. "19 Dec 2026" / "19 December 2026" (day month-name year).
-  m = line.match(/\b(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})\b/)
+  // 2. "19 Dec 2026" / "19-Dec-2026" / "19/Dec/2026" (day month-name year).
+  m = normalizedLine.match(/\b(\d{1,2})[\s\-/.]*([A-Za-z]{3,9})\.?,?\s*[-/.]?\s*(\d{4})\b/)
   if (m) {
     const mo = MONTHS[m[2].toLowerCase().slice(0, m[2].length >= 4 ? 4 : 3)] ?? MONTHS[m[2].toLowerCase().slice(0, 3)]
     const y = Number(m[3]), d = Number(m[1])
     if (mo && isValidYmd(y, mo, d)) return { iso: `${y}-${pad(mo)}-${pad(d)}`, match: m[0] }
   }
 
-  // 3. "Dec 19, 2026" (month-name day year).
-  m = line.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/)
+  // 3. "Dec 19, 2026" / "Dec-19-2026" (month-name day year).
+  m = normalizedLine.match(/\b([A-Za-z]{3,9})\.?\s*[-/.]?\s*(\d{1,2}),?\s*[-/.]?\s*(\d{4})\b/)
   if (m) {
     const mo = MONTHS[m[1].toLowerCase().slice(0, 3)]
     const y = Number(m[3]), d = Number(m[2])
@@ -144,7 +152,7 @@ export function findDate(line: string): FoundDate | null {
   }
 
   // 4. Numeric day-first d-m-y / d/m/y / d.m.y (Indian convention).
-  m = line.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/)
+  m = normalizedLine.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/)
   if (m) {
     const d = Number(m[1]), mo = Number(m[2]), y = fourDigitYear(Number(m[3]))
     if (isValidYmd(y, mo, d)) return { iso: `${y}-${pad(mo)}-${pad(d)}`, match: m[0] }

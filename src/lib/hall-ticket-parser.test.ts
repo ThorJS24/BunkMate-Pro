@@ -9,9 +9,14 @@ describe('findDate', () => {
     expect(findDate('exam on 17/12/2026')?.iso).toBe('2026-12-17')
     expect(findDate('exam on 03.01.2027')?.iso).toBe('2027-01-03')
   })
-  it('reads "19 Dec 2026" and full month names', () => {
+  it('reads "19 Dec 2026", "19-Dec-2026" and full month names', () => {
     expect(findDate('Data Ethics 19 Dec 2026')?.iso).toBe('2026-12-19')
+    expect(findDate('Data Ethics 19-Dec-2026')?.iso).toBe('2026-12-19')
     expect(findDate('Data Ethics 5 September 2026')?.iso).toBe('2026-09-05')
+  })
+  it('normalizes OCR digit character misreads like I/l or O', () => {
+    expect(findDate('exam on 15/I0/2026')?.iso).toBe('2026-10-15')
+    expect(findDate('exam on 15-O5-2026')?.iso).toBe('2026-05-15')
   })
   it('reads "Dec 19, 2026" month-first', () => {
     expect(findDate('Dec 19, 2026 forenoon')?.iso).toBe('2026-12-19')

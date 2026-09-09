@@ -10,6 +10,8 @@ export interface AttendanceRecordFilter {
   subjectId?: number
   dateFrom?: string
   dateTo?: string
+  limit?: number
+  offset?: number
 }
 
 export function listAttendanceRecords(db: AppDatabase, filter: AttendanceRecordFilter = {}): AttendanceRecord[] {
@@ -18,9 +20,18 @@ export function listAttendanceRecords(db: AppDatabase, filter: AttendanceRecordF
   if (filter.dateFrom) conditions.push(gte(attendanceRecords.date, filter.dateFrom))
   if (filter.dateTo) conditions.push(lte(attendanceRecords.date, filter.dateTo))
 
-  const query = db.select().from(attendanceRecords)
-  if (conditions.length === 0) return query.all()
-  return query.where(and(...conditions)).all()
+  let query = db.select().from(attendanceRecords)
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as typeof query
+  }
+  if (filter.limit !== undefined && filter.limit > 0) {
+    query = query.limit(filter.limit) as typeof query
+  }
+  if (filter.offset !== undefined && filter.offset > 0) {
+    query = query.offset(filter.offset) as typeof query
+  }
+
+  return query.all()
 }
 
 export function getAttendanceRecord(db: AppDatabase, id: number): AttendanceRecord | undefined {

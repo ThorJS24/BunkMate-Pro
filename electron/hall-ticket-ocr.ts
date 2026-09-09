@@ -195,13 +195,15 @@ export async function extractHallTicketText(
   // OCR — OCR is the slow part so it gets most of each slice).
   const pageSpan = 0.9 / pageCount
   let currentPage = 1
-  const worker = await makeWorker((status, progress) => {
-    if (!/recogniz/i.test(status)) return
-    const base = 0.08 + (currentPage - 1) * pageSpan
-    emit('recognizing', base + progress * pageSpan * 0.85, `Reading page ${currentPage} of ${pageCount}…`)
-  })
 
+  let worker: Worker | null = null
   try {
+    worker = await makeWorker((status, progress) => {
+      if (!/recogniz/i.test(status)) return
+      const base = 0.08 + (currentPage - 1) * pageSpan
+      emit('recognizing', base + progress * pageSpan * 0.85, `Reading page ${currentPage} of ${pageCount}…`)
+    })
+
     const pages: string[] = []
     for (let p = 1; p <= pageCount; p++) {
       currentPage = p
@@ -214,7 +216,7 @@ export async function extractHallTicketText(
     emit('done', 1, 'Finishing up…')
     return pages.join('\n')
   } finally {
-    await worker.terminate()
+    if (worker) await worker.terminate()
     await loadingTask.destroy()
   }
 }

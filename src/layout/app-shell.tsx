@@ -12,11 +12,14 @@ import {
   NotebookPen,
   Sun,
   Award,
+  UserCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GlobalSearch } from '@/components/global-search'
 import { CommandPalette } from '@/components/command-palette'
 import { NotificationCenter } from '@/components/notification-center'
+import { QuickEsproSyncButton } from '@/components/quick-espro-sync'
+import { HelpCenterButton } from '@/components/help-center'
 import { ErrorBoundary } from '@/components/error-boundary'
 
 interface NavItem {
@@ -58,17 +61,35 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Setup',
     items: [
+      { to: '/account', label: 'Account & ESPRO', icon: UserCheck },
       { to: '/semesters', label: 'Semesters', icon: GraduationCap },
       { to: '/settings', label: 'Settings', icon: Settings },
     ],
   },
 ]
 
+import { useEffect } from 'react'
+import { useAttendanceStore } from '@/store/attendance-store'
+import { useSubjectsStore } from '@/store/subjects-store'
+import { useToastStore } from '@/store/toast-store'
+
 export function AppShell() {
   const location = useLocation()
+
+  useEffect(() => {
+    const unsub = window.bunkmate?.espro?.onAutoSynced?.(() => {
+      useSubjectsStore.getState().load({ includeArchived: false })
+      useAttendanceStore.getState().load()
+      useToastStore.getState().push({
+        title: 'ESPRO Auto-Synced',
+        description: 'Updated latest attendance & duty leave records from portal.',
+      })
+    })
+    return () => unsub?.()
+  }, [])
   return (
     <div className="flex h-full">
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-card">
+      <aside className="no-print flex w-56 shrink-0 flex-col border-r bg-card">
         <div className="flex h-14 items-center border-b px-4">
           <span className="text-lg font-semibold">BunkMate Pro</span>
         </div>
@@ -102,14 +123,31 @@ export function AppShell() {
       </aside>
       <CommandPalette />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-6">
+        <header className="no-print flex h-14 shrink-0 items-center justify-between gap-3 border-b px-6">
           <GlobalSearch />
           <span className="hidden text-xs text-muted-foreground md:inline">
             Press <kbd className="rounded border bg-muted px-1 py-0.5 font-sans">Ctrl</kbd>+
             <kbd className="rounded border bg-muted px-1 py-0.5 font-sans">K</kbd> for commands
           </span>
           <div className="flex-1" />
+          <QuickEsproSyncButton />
+          <HelpCenterButton />
           <NotificationCenter />
+          <NavLink
+            to="/account"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium border transition-colors',
+                isActive
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-muted/40 hover:bg-accent text-foreground',
+              )
+            }
+            title="Account, ESPRO Credentials & Auto-Update"
+          >
+            <UserCheck className="size-3.5" />
+            <span>Account</span>
+          </NavLink>
         </header>
         <main className="flex-1 overflow-auto p-6">
           <ErrorBoundary key={location.pathname}>

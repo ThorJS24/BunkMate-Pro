@@ -9,6 +9,8 @@ export interface Toast {
   id: number
   title: string
   description?: string
+  /** Raw technical detail (e.g. an original error message), shown collapsed behind a "Show details" disclosure rather than inline. */
+  detail?: string
   variant?: 'default' | 'destructive'
   action?: ToastAction
 }

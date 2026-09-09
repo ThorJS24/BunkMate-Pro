@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { SemesterSwitcher } from '@/components/semester-switcher'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useTimetableStore } from '@/store/timetable-store'
@@ -32,6 +33,7 @@ import { todayIso } from '@/lib/date-utils'
 import { HolidaysTab } from '@/pages/holidays-tab'
 import { YellowFormsTab } from '@/pages/yellow-forms-tab'
 import { YellowFormDisputeBadge } from '@/components/yellow-form-dispute'
+import { QuickEsproSyncButton } from '@/components/quick-espro-sync'
 import { cn } from '@/lib/utils'
 import type { YellowForm } from '../../electron/db/repositories/yellow-forms'
 
@@ -51,7 +53,7 @@ function toIso(year: number, month: number, day: number): string {
 // worth a full number (class count, absences) still get real badge/text
 // treatment; everything else is a glanceable dot with the detail in `title`.
 function StatusDot({ className, title }: { className: string; title: string }) {
-  return <span className={cn('size-1.5 shrink-0 rounded-full', className)} title={title} />
+  return <span className={cn('size-2 shrink-0 rounded-full ring-1 ring-black/10', className)} title={title} />
 }
 
 interface DayCell {
@@ -148,7 +150,6 @@ function CalendarGrid() {
     }
     return map
   }, [exams])
-  const yellowFormDates = useMemo(() => new Set(yellowForms.map((f) => f.date)), [yellowForms])
   const recordsByDate = useMemo(() => {
     const map = new Map<string, typeof records>()
     for (const r of records) {
@@ -371,66 +372,106 @@ function CalendarGrid() {
     }
   }
 
-  const monthLabel = new Date(Date.UTC(cursor.year, cursor.month, 1)).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Month Navigation & Hero Toolbar */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold">
+              {new Date(cursor.year, cursor.month).toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </h1>
+            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-xs">
+              {currentSemester ?? 'Academic Calendar'}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Monthly schedule view with exam dates, holidays, leave plans, and period attendance tracking.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <SemesterSwitcher />
+          <QuickEsproSyncButton variant="outline" size="sm" />
           <Button
-            size="icon"
             variant="outline"
-            onClick={() => setCursor((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))}
-            aria-label="Previous month"
+            size="sm"
+            onClick={() =>
+              setCursor((prev) =>
+                prev.month === 0 ? { year: prev.year - 1, month: 11 } : { ...prev, month: prev.month - 1 },
+              )
+            }
           >
-            <ChevronLeft />
+            <ChevronLeft className="size-4 mr-1" /> Prev
           </Button>
-          <h2 className="w-40 text-center text-lg font-semibold">{monthLabel}</h2>
           <Button
-            size="icon"
             variant="outline"
-            onClick={() => setCursor((c) => (c.month === 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: c.month + 1 }))}
-            aria-label="Next month"
+            size="sm"
+            onClick={() => {
+              const [y, m] = today.split('-').map(Number)
+              setCursor({ year: y, month: m - 1 })
+            }}
           >
-            <ChevronRight />
+            Today
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setCursor((prev) =>
+                prev.month === 11 ? { year: prev.year + 1, month: 0 } : { ...prev, month: prev.month + 1 },
+              )
+            }
+          >
+            Next <ChevronRight className="size-4 ml-1" />
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => {
+              setRangeFrom(todayIso())
+              setRangeTo(todayIso())
+              setRangeStatus('present')
+              setRangeOpen(true)
+            }}
+          >
+            Mark Date Range
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setRangeFrom(todayIso())
-            setRangeTo(todayIso())
-            setRangeStatus('present')
-            setRangeOpen(true)
-          }}
-        >
-          Mark range
-        </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <StatusDot className="bg-success" title="Holiday" /> Holiday
-        </span>
-        <span className="flex items-center gap-1.5">
-          <StatusDot className="bg-secondary-foreground/60" title="Leave" /> Leave
-        </span>
-        <span className="flex items-center gap-1.5">
-          <StatusDot className="bg-warning" title="Yellow form" /> Yellow form
-        </span>
-        <span className="flex items-center gap-1.5">
-          <StatusDot className="bg-destructive" title="Exam" /> Exam
-        </span>
+      {/* Month Legend & Indicators */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card/50 p-3 text-xs">
+        <div className="flex flex-wrap items-center gap-4 text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <StatusDot className="bg-emerald-500" title="Holiday" /> Holiday / Off
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot className="bg-amber-500" title="Yellow Form" /> Yellow Form
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot className="bg-blue-500" title="Blue Form" /> Blue Form
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot className="bg-rose-500" title="Exam" /> Exam
+          </span>
+          <span className="flex items-center gap-1.5">
+            <StatusDot className="bg-purple-500" title="Leave" /> Leave Plan
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="font-normal text-[11px]">
+            {cells.filter((c) => c.inMonth).length} Days in Month
+          </Badge>
+        </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1.5 rounded-lg border p-2">
+      {/* Month Calendar Matrix */}
+      <div className="grid grid-cols-7 gap-2">
         {WEEKDAY_HEADERS.map((label) => (
-          <div key={label} className="p-1 text-center text-xs font-medium text-muted-foreground">
+          <div key={label} className="p-2 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             {label}
           </div>
         ))}
@@ -440,45 +481,65 @@ function CalendarGrid() {
           const scheduled = cell.inMonth ? slotsForDate(cell.iso) : []
           const onLeave = leaveDates.has(cell.iso)
           const dayExams = cell.inMonth ? (examsByDate.get(cell.iso) ?? []) : []
-          const hasYellowForm = cell.inMonth && yellowFormDates.has(cell.iso)
+          const dayYellowForms = cell.inMonth ? yellowForms.filter((f) => f.date === cell.iso) : []
+          const hasBlueForm = dayYellowForms.some((f) => f.reason?.toLowerCase().includes('blue form'))
+          const hasYellowForm = dayYellowForms.length > 0 && !hasBlueForm
+
           const absentCount = dayRecords.filter((r) => r.status === 'absent').length
           const presentCount = dayRecords.filter((r) => r.status === 'present').length
+
           return (
             <button
               key={cell.iso}
               type="button"
               onClick={() => setSelectedDate(cell.iso)}
               className={cn(
-                'flex h-24 flex-col items-stretch gap-1 rounded-lg border border-transparent p-2 text-left transition-colors hover:border-border hover:bg-accent hover:shadow-sm',
-                !cell.inMonth && 'opacity-40',
-                holiday && holiday.type !== 'working_saturday' && 'bg-success/5',
-                cell.iso === todayIso() && 'ring-2 ring-primary',
+                'flex h-24 flex-col items-stretch justify-between rounded-xl border p-2.5 text-left transition-all duration-150 bg-card hover:border-primary/50 hover:shadow-md',
+                !cell.inMonth && 'opacity-35 bg-muted/20',
+                holiday && holiday.type !== 'working_saturday' && 'bg-emerald-500/10 border-emerald-500/30',
+                cell.iso === todayIso() && 'ring-2 ring-primary shadow-sm',
               )}
             >
               <div className="flex items-center justify-between">
-                <span className={cn('text-sm font-semibold', cell.iso === todayIso() && 'text-primary')}>
+                <span className={cn('text-sm font-semibold', cell.iso === todayIso() && 'text-primary font-bold')}>
                   {cell.day}
                 </span>
                 <div className="flex items-center gap-1">
                   {holiday && (
                     <StatusDot
-                      className={holiday.type === 'working_saturday' ? 'bg-primary' : 'bg-success'}
+                      className={holiday.type === 'working_saturday' ? 'bg-primary' : 'bg-emerald-500'}
                       title={holiday.type === 'working_saturday' ? 'Working Saturday' : `Holiday: ${holiday.label ?? holiday.type}`}
                     />
                   )}
-                  {onLeave && <StatusDot className="bg-secondary-foreground/60" title="Part of a leave plan" />}
-                  {hasYellowForm && <StatusDot className="bg-warning" title="Yellow form filed" />}
+                  {onLeave && <StatusDot className="bg-purple-500" title="Part of a leave plan" />}
+                  {hasYellowForm && <StatusDot className="bg-amber-500" title="Yellow form filed" />}
+                  {hasBlueForm && <StatusDot className="bg-blue-500" title="Blue form filed" />}
                   {dayExams.length > 0 && (
                     <StatusDot
-                      className="bg-destructive"
+                      className="bg-rose-500"
                       title={dayExams.length === 1 ? '1 exam' : `${dayExams.length} exams`}
                     />
                   )}
                 </div>
               </div>
-              <div className="mt-auto flex items-end justify-between gap-1">
+
+              {/* Day Event Summary Badges */}
+              <div className="flex flex-col gap-1 mt-1">
+                {dayExams.length > 0 && (
+                  <Badge variant="destructive" className="px-1.5 py-0 text-[10px] truncate max-w-full font-medium">
+                    📝 {dayExams[0].name}
+                  </Badge>
+                )}
+                {holiday && (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                    🌴 {holiday.label || 'Holiday'}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-auto flex items-end justify-between gap-1 pt-1">
                 {!holiday && scheduled.length > 0 ? (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     {scheduled.length} class{scheduled.length === 1 ? '' : 'es'}
                   </span>
                 ) : (
@@ -490,8 +551,8 @@ function CalendarGrid() {
                       {absentCount} absent
                     </Badge>
                   ) : (
-                    <span className="text-[11px] text-muted-foreground">
-                      {presentCount}/{dayRecords.length}
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                      {presentCount}/{dayRecords.length} Present
                     </span>
                   ))}
               </div>
@@ -529,7 +590,7 @@ function CalendarGrid() {
           </div>
 
           {selectedDate && (examsByDate.get(selectedDate)?.length ?? 0) > 0 && (
-            <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 p-3">
               <h3 className="text-sm font-semibold text-destructive">Exams</h3>
               {examsByDate.get(selectedDate)?.map((exam) => (
                 <p key={exam.id} className="text-sm">

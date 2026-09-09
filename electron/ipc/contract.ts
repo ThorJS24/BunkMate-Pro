@@ -11,7 +11,8 @@ import type {
 } from '../db/repositories/semesters'
 import type { Subject, NewSubject, SubjectUpdate } from '../db/repositories/subjects'
 import type { EsproStatus, EsproSaveResult } from '../espro/types'
-import type { AttendanceComparisonRow } from '../espro/attendance-totals'
+import type { EsproComparisonResult, EsproSyncResult, EsproAutoImportResult } from '../espro/sync'
+import type { DayPeriodDetail } from '../espro/attendance-days'
 
 /** Streamed while a hall-ticket PDF is being rasterized and OCR'd. */
 export interface PdfOcrProgress {
@@ -51,6 +52,7 @@ export const IPC_CHANNELS = {
   semestersUpdate: 'semesters:update',
   semestersSetArchived: 'semesters:setArchived',
   semestersDelete: 'semesters:delete',
+  semestersDeleteCascade: 'semesters:deleteCascade',
   semestersRolloverPreview: 'semesters:rolloverPreview',
   semestersCreateWithRollover: 'semesters:createWithRollover',
   semestersGetDependents: 'semesters:getDependents',
@@ -99,6 +101,17 @@ export const IPC_CHANNELS = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
 
+  sampleDataCreate: 'sampleData:create',
+
+  clearAllData: 'dangerZone:clearAllData',
+
+  focusModeSet: 'focusMode:set',
+
+  miniWindowToggle: 'miniWindow:toggle',
+
+  crashLogRecord: 'crashLog:record',
+  crashLogOpenFolder: 'crashLog:openFolder',
+
   periodTypeRulesList: 'periodTypeRules:list',
   periodTypeRulesSetBucket: 'periodTypeRules:setBucket',
 
@@ -107,6 +120,7 @@ export const IPC_CHANNELS = {
   filesOpenPdfText: 'files:openPdfText',
   filesPdfProgress: 'files:pdfProgress',
   filesOpenDigitalPdfText: 'files:openDigitalPdfText',
+  filesFetchTextUrl: 'files:fetchTextUrl',
 
   backupNow: 'backup:now',
   backupRestore: 'backup:restore',
@@ -117,6 +131,13 @@ export const IPC_CHANNELS = {
   esproRemoveCredential: 'espro:removeCredential',
   esproSaveSessionId: 'espro:saveSessionId',
   esproCompareAttendance: 'espro:compareAttendance',
+  esproSyncAttendance: 'espro:syncAttendance',
+  esproGetDayPeriodDetail: 'espro:getDayPeriodDetail',
+  esproAutoImport: 'espro:autoImport',
+
+  updaterCheckForUpdates: 'updater:checkForUpdates',
+  updaterDownloadUpdate: 'updater:downloadUpdate',
+  updaterQuitAndInstall: 'updater:quitAndInstall',
 } as const
 
 export interface BunkMateApi {
@@ -129,6 +150,8 @@ export interface BunkMateApi {
     setArchived: (id: number, archived: boolean) => Promise<Semester>
     /** Throws (rejects) with a human-readable message if dependents exist. */
     delete: (id: number) => Promise<void>
+    /** Deletes the semester AND its subjects/timetable/exams/attendance. No dependents check — irreversible. */
+    deleteCascade: (id: number) => Promise<void>
     getDependents: (label: string) => Promise<SemesterDependents>
     /** What a rollover from this semester label would copy. */
     rolloverPreview: (fromLabel: string) => Promise<RolloverPreview>
@@ -199,6 +222,33 @@ export interface BunkMateApi {
     update: (input: SettingsUpdate) => Promise<Settings>
   }
 
+  sampleData: {
+    /** Seeds a believable demo semester (subjects, timetable, two weeks of attendance) and activates it. */
+    create: () => Promise<Semester>
+  }
+
+  dangerZone: {
+    /** Wipes all tracked academic data (semesters, subjects, timetable, attendance, exams, holidays, leave plans, yellow forms). Leaves settings and ESPRO credentials untouched. Irreversible without a backup. */
+    clearAllData: () => Promise<void>
+  }
+
+  focusMode: {
+    /** While active, class/exam reminders skip firing rather than queueing. */
+    set: (active: boolean) => Promise<void>
+  }
+
+  miniWindow: {
+    /** Opens the small always-on-top companion window, or closes it if already open. */
+    toggle: () => Promise<void>
+  }
+
+  crashLog: {
+    /** No-ops unless the crash-log setting is on. */
+    record: (message: string) => Promise<void>
+    /** Reveals the log file (or the userData folder, if none exists yet). */
+    openFolder: () => Promise<void>
+  }
+
   periodTypeRules: {
     list: () => Promise<PeriodTypeRule[]>
     setBucket: (type: PeriodTypeRule['type'], bucket: PeriodTypeRule['bucket']) => Promise<PeriodTypeRule>
@@ -233,6 +283,15 @@ export interface BunkMateApi {
      * print-to-PDF document (use openPdfText for those). Null if cancelled.
      */
     openDigitalPdfText: () => Promise<{ name: string; text: string } | null>
+    /**
+     * Fetches a URL's text content from the main process (not the renderer)
+     * so it isn't subject to browser CORS restrictions a calendar host may
+     * not have configured — used for "import from a shared calendar link"
+     * instead of a downloaded .ics file. Throws with a plain-language reason
+     * on a non-2xx response, a non-calendar content type, or a body over the
+     * size cap.
+     */
+    fetchTextUrl: (url: string) => Promise<string>
   }
 
   backup: {
@@ -267,13 +326,46 @@ export interface BunkMateApi {
      */
     saveSessionId: (sessionId: string) => Promise<void>
     /**
-     * Logs into ESPRO, fetches its official per-subject attendance totals,
-     * and compares them against BunkMate's own locally-computed totals for
-     * `semesterLabel`. A trust check, not an import — see attendance-totals.ts
-     * for why ESPRO's data can't honestly be turned into per-period records.
-     * Rejects if no credential/session id is stored, login fails, or the
-     * totals endpoint doesn't respond as expected.
+     * Logs into ESPRO, fetches its official per-subject totals plus a
+     * day-by-day present/absent breakdown, and compares both against
+     * BunkMate's own locally-computed numbers for `semesterLabel`. Also
+     * returns period-by-period detail for any mismatched date (bounded — see
+     * MAX_PERIOD_DRILLDOWNS in sync.ts). A trust check, not an import — see
+     * attendance-totals.ts for why ESPRO's data can't honestly be turned into
+     * per-period records. Rejects if no credential/session id is stored,
+     * login fails, or an endpoint doesn't respond as expected.
      */
-    compareAttendance: (semesterLabel: string) => Promise<AttendanceComparisonRow[]>
+    compareAttendance: (semesterLabel: string) => Promise<EsproComparisonResult>
+    /**
+     * Writes ESPRO's per-period attendance into BunkMate's own records
+     * (source 'espro') for any date ESPRO has data for that BunkMate doesn't
+     * already match — see sync.ts's esproSyncAttendance for the full rule.
+     * Requires this semester's period times to be allocated first (see
+     * EsproSyncResult.missingPeriodTimes). Rejects under the same conditions
+     * as compareAttendance.
+     */
+    syncAttendance: (semesterLabel: string) => Promise<EsproSyncResult>
+    /**
+     * Period-by-period ESPRO-vs-local detail for exactly one date, fetched
+     * on demand (a fresh login + one request) — the day comparison table
+     * calls this whenever a user clicks ANY day, not just the pre-fetched
+     * mismatches compareAttendance already bundles. Rejects under the same
+     * conditions as compareAttendance.
+     */
+    getDayPeriodDetail: (semesterLabel: string, date: string) => Promise<DayPeriodDetail>
+    /**
+     * 1-Click Full ESPRO Auto-Import: Scrapes all courses, creates missing subjects,
+     * auto-allocates default period times if missing, and syncs all historical logs.
+     */
+    autoImport: (semesterLabel: string) => Promise<EsproAutoImportResult>
+    /** Listens for background auto-sync completion notifications. Returns cleanup function. */
+    onAutoSynced?: (callback: (result: unknown) => void) => () => void
+  }
+
+  updater?: {
+    checkForUpdates: () => Promise<{ status: string; info?: unknown; error?: string }>
+    downloadUpdate: () => Promise<void>
+    quitAndInstall: () => void
+    onStatusChange?: (callback: (payload: unknown) => void) => () => void
   }
 }

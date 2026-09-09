@@ -1,10 +1,21 @@
 import { Notification, BrowserWindow } from 'electron'
 import type { AppDatabase } from './db/client'
-import { settingsRepo, semestersRepo, timetableSlotsRepo, subjectsRepo, examsRepo } from './db/repositories'
-import { jsDayToWeekday } from '../src/lib/attendance-engine'
+import {
+  settingsRepo,
+  semestersRepo,
+  timetableSlotsRepo,
+  subjectsRepo,
+  examsRepo,
+  attendanceRecordsRepo,
+  holidaysRepo,
+  yellowFormsRepo,
+  periodTypeRulesRepo,
+} from './db/repositories'
+import { jsDayToWeekday, computeAttendance, aggregateOverall, resolveSubjectMinTarget } from '../src/lib/attendance-engine'
 import { computeDueReminders } from '../src/lib/class-reminders'
 import { computeDueExamReminders } from '../src/lib/exam-reminders'
-import { todayIso } from '../src/lib/date-utils'
+import { computeDueWeeklyDigest } from '../src/lib/weekly-digest'
+import { todayIso, daysUntil } from '../src/lib/date-utils'
 
 // How often the scheduler re-checks. 30s means a reminder fires within half a
 // minute of its lead window opening — fine granularity for a ~10-minute
@@ -26,14 +37,18 @@ function nowMinutes(): number {
  * fire a native Notification for any not already sent today. The fired-key
  * set resets when the date rolls over.
  */
-export function startClassReminders(db: AppDatabase): () => void {
+export function startClassReminders(db: AppDatabase, focusModeState: { active: boolean }): () => void {
   const firedToday = new Set<string>()
   let firedDate = todayIso()
 
-  /** Fires a native notification once per key, per day. */
+  /** Fires a native notification once per key, per day — skipped entirely
+   * while Focus mode is on (see the Pomodoro timer), rather than queued for
+   * later: a stale "class starting" ping after a focus session ends would
+   * be more confusing than just missing it. */
   function fireOnce(key: string, title: string, body: string) {
     if (firedToday.has(key)) return
     firedToday.add(key)
+    if (focusModeState.active) return
     if (!Notification.isSupported()) return
     const notification = new Notification({ title, body })
     notification.on('click', () => {
@@ -70,6 +85,44 @@ export function startClassReminders(db: AppDatabase): () => void {
     for (const reminder of due) fireOnce(reminder.key, reminder.title, reminder.body)
   }
 
+  // Independent of class/exam reminders — a once-a-week summary rather than
+  // a per-event heads-up, so it has its own toggle and its own due-check.
+  function tickWeeklyDigest(today: string) {
+    const settings = settingsRepo.getSettings(db)
+    if (!settings.weeklyDigestEnabled) return
+
+    const subjects = subjectsRepo.listSubjects(db, { semester: settings.currentSemester })
+    const subjectIds = new Set(subjects.map((s) => s.id))
+    const records = attendanceRecordsRepo.listAttendanceRecords(db).filter((r) => subjectIds.has(r.subjectId))
+    const slots = timetableSlotsRepo.listTimetableSlots(db, { semester: settings.currentSemester })
+    const holidays = holidaysRepo.listHolidays(db)
+    const yellowForms = yellowFormsRepo.listYellowForms(db)
+    const rules = periodTypeRulesRepo.listPeriodTypeRules(db)
+
+    const bySubject = computeAttendance({ records, slots, holidays, yellowForms, rules })
+    const overall = aggregateOverall(bySubject)
+
+    const subjectsBelowTarget = subjects.filter((s) => {
+      const pct = bySubject.get(s.id)?.overall.percentage
+      if (pct === null || pct === undefined) return false
+      return pct < resolveSubjectMinTarget(s, settings.subjectMinTarget)
+    }).length
+
+    const exams = examsRepo.listExams(db, { semester: settings.currentSemester })
+    const examCountNextWeek = exams.filter((e) => {
+      const d = daysUntil(e.date)
+      return d >= 0 && d <= 7
+    }).length
+
+    const due = computeDueWeeklyDigest({
+      todayIso: today,
+      jsWeekday: new Date().getDay(),
+      nowMinutes: nowMinutes(),
+      digest: { overallPercentage: overall.percentage, subjectsBelowTarget, examCountNextWeek },
+    })
+    if (due) fireOnce(due.key, due.title, due.body)
+  }
+
   function tick() {
     try {
       const today = todayIso()
@@ -78,9 +131,14 @@ export function startClassReminders(db: AppDatabase): () => void {
         firedDate = today
       }
 
-      // Never let an exam-reminder failure stop class reminders, or vice versa.
+      // Never let an exam-reminder (or digest) failure stop class reminders, or vice versa.
       try {
         tickExams(today)
+      } catch {
+        // swallow; retry next tick
+      }
+      try {
+        tickWeeklyDigest(today)
       } catch {
         // swallow; retry next tick
       }

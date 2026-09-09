@@ -13,6 +13,7 @@ const api: BunkMateApi = {
     update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.semestersUpdate, id, input),
     setArchived: (id, archived) => ipcRenderer.invoke(IPC_CHANNELS.semestersSetArchived, id, archived),
     delete: (id) => ipcRenderer.invoke(IPC_CHANNELS.semestersDelete, id),
+    deleteCascade: (id) => ipcRenderer.invoke(IPC_CHANNELS.semestersDeleteCascade, id),
     getDependents: (label) => ipcRenderer.invoke(IPC_CHANNELS.semestersGetDependents, label),
     rolloverPreview: (fromLabel) => ipcRenderer.invoke(IPC_CHANNELS.semestersRolloverPreview, fromLabel),
     createWithRollover: (input, fromLabel) =>
@@ -80,6 +81,27 @@ const api: BunkMateApi = {
     update: (input) => ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, input),
   },
 
+  sampleData: {
+    create: () => ipcRenderer.invoke(IPC_CHANNELS.sampleDataCreate),
+  },
+
+  dangerZone: {
+    clearAllData: () => ipcRenderer.invoke(IPC_CHANNELS.clearAllData),
+  },
+
+  focusMode: {
+    set: (active) => ipcRenderer.invoke(IPC_CHANNELS.focusModeSet, active),
+  },
+
+  miniWindow: {
+    toggle: () => ipcRenderer.invoke(IPC_CHANNELS.miniWindowToggle),
+  },
+
+  crashLog: {
+    record: (message) => ipcRenderer.invoke(IPC_CHANNELS.crashLogRecord, message),
+    openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.crashLogOpenFolder),
+  },
+
   periodTypeRules: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.periodTypeRulesList),
     setBucket: (type, bucket) => ipcRenderer.invoke(IPC_CHANNELS.periodTypeRulesSetBucket, type, bucket),
@@ -97,6 +119,7 @@ const api: BunkMateApi = {
       }
     },
     openDigitalPdfText: () => ipcRenderer.invoke(IPC_CHANNELS.filesOpenDigitalPdfText),
+    fetchTextUrl: (url) => ipcRenderer.invoke(IPC_CHANNELS.filesFetchTextUrl, url),
   },
 
   espro: {
@@ -105,12 +128,32 @@ const api: BunkMateApi = {
     removeCredential: () => ipcRenderer.invoke(IPC_CHANNELS.esproRemoveCredential),
     saveSessionId: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.esproSaveSessionId, sessionId),
     compareAttendance: (semesterLabel) => ipcRenderer.invoke(IPC_CHANNELS.esproCompareAttendance, semesterLabel),
+    syncAttendance: (semesterLabel) => ipcRenderer.invoke(IPC_CHANNELS.esproSyncAttendance, semesterLabel),
+    getDayPeriodDetail: (semesterLabel, date) =>
+      ipcRenderer.invoke(IPC_CHANNELS.esproGetDayPeriodDetail, semesterLabel, date),
+    autoImport: (semesterLabel) => ipcRenderer.invoke(IPC_CHANNELS.esproAutoImport, semesterLabel),
+    onAutoSynced: (callback) => {
+      const listener = (_e: unknown, data: unknown) => callback(data)
+      ipcRenderer.on('espro:autoSynced', listener)
+      return () => ipcRenderer.removeListener('espro:autoSynced', listener)
+    },
   },
 
   backup: {
     now: () => ipcRenderer.invoke(IPC_CHANNELS.backupNow),
     restore: () => ipcRenderer.invoke(IPC_CHANNELS.backupRestore),
     chooseDir: () => ipcRenderer.invoke(IPC_CHANNELS.backupChooseDir),
+  },
+
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updaterCheckForUpdates),
+    downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updaterDownloadUpdate),
+    quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.updaterQuitAndInstall),
+    onStatusChange: (callback) => {
+      const listener = (_e: unknown, payload: unknown) => callback(payload)
+      ipcRenderer.on('updater:status', listener)
+      return () => ipcRenderer.removeListener('updater:status', listener)
+    },
   },
 }
 

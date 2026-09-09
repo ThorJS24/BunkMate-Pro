@@ -45,3 +45,53 @@ export function countdownLabel(dateIso: string): string {
   if (d > 0) return `in ${d} days`
   return `${-d} days ago`
 }
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+/** "2026-06" -> "June 2026". */
+export function monthLabelFor(monthKey: string): string {
+  const [year, month] = monthKey.split('-')
+  return `${MONTH_NAMES[Number(month) - 1]} ${year}`
+}
+
+export interface MonthGroup<T> {
+  monthKey: string
+  monthLabel: string
+  items: T[]
+}
+
+/**
+ * Buckets `items` by the yyyy-mm prefix of their date, most recent month
+ * first. Used to turn a long flat list of dated rows (attendance records,
+ * ESPRO day comparisons) into a collapsible-by-month view instead of one
+ * unbroken scroll — see src/components/collapsible-section.tsx.
+ */
+export function groupByMonth<T>(items: T[], getDate: (item: T) => string): MonthGroup<T>[] {
+  const byMonth = new Map<string, T[]>()
+  for (const item of items) {
+    const monthKey = getDate(item).slice(0, 7)
+    const bucket = byMonth.get(monthKey)
+    if (bucket) bucket.push(item)
+    else byMonth.set(monthKey, [item])
+  }
+  return [...byMonth.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([monthKey, monthItems]) => ({ monthKey, monthLabel: monthLabelFor(monthKey), items: monthItems }))
+}
+
+/** Buckets `items` by their exact date, most recent first — the day-level nesting inside a MonthGroup. */
+export function groupByDay<T>(items: T[], getDate: (item: T) => string): { date: string; items: T[] }[] {
+  const byDay = new Map<string, T[]>()
+  for (const item of items) {
+    const date = getDate(item)
+    const bucket = byDay.get(date)
+    if (bucket) bucket.push(item)
+    else byDay.set(date, [item])
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([date, dayItems]) => ({ date, items: dayItems }))
+}

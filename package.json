@@ -1,7 +1,7 @@
 {
   "name": "bunkmate-pro",
   "private": true,
-  "version": "1.4.0",
+  "version": "2.1.0",
   "type": "module",
   "description": "Offline attendance tracker for CHRIST University students",
   "author": "BunkMate Pro",
@@ -26,7 +26,9 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
+    "@radix-ui/react-tooltip": "^1.2.16",
     "better-sqlite3": "^12.11.1",
+    "electron-updater": "^6.8.9",
     "pdfjs-dist": "^6.1.200",
     "tesseract.js": "^7.0.0"
   },

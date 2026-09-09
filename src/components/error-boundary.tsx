@@ -20,6 +20,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Unhandled render error', error, info.componentStack)
+    // No-ops main-side unless the crash-log setting is on — this call is
+    // unconditional so the renderer doesn't need its own copy of that
+    // setting just to decide whether to make it.
+    window.bunkmate.crashLog
+      .record(`${error.stack ?? error.message}\n${info.componentStack ?? ''}`)
+      .catch(() => {})
   }
 
   render() {

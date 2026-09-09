@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Pencil, Archive, ArchiveRestore, Trash2, History, X } from 'lucide-react'
+import { Plus, Pencil, Archive, ArchiveRestore, Trash2, History, X, Link as LinkIcon, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,7 @@ import {
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useSemestersStore } from '@/store/semesters-store'
@@ -35,11 +36,15 @@ interface SubjectFormState {
   semester: string
   credits: string
   faculty: string
+  facultyEmail: string
+  officeHours: string
   category: string
   /** Blank means "inherit the default subject minimum" (customMinTarget: null). */
   customMinTarget: string
   /** Empty means "use the palette slot" (color: null). */
   color: string
+  notes: string
+  link: string
 }
 
 function emptyForm(defaultSemester: string): SubjectFormState {
@@ -48,9 +53,13 @@ function emptyForm(defaultSemester: string): SubjectFormState {
     semester: defaultSemester,
     credits: '3',
     faculty: '',
+    facultyEmail: '',
+    officeHours: '',
     category: 'core',
     customMinTarget: '',
     color: '',
+    notes: '',
+    link: '',
   }
 }
 
@@ -105,9 +114,13 @@ export function SubjectsPage() {
       semester: subject.semester,
       credits: String(subject.credits),
       faculty: subject.faculty ?? '',
+      facultyEmail: subject.facultyEmail ?? '',
+      officeHours: subject.officeHours ?? '',
       category: subject.category ?? 'core',
       customMinTarget: subject.customMinTarget === null ? '' : String(subject.customMinTarget),
       color: subject.color ?? '',
+      notes: subject.notes ?? '',
+      link: subject.link ?? '',
     })
     setDialogOpen(true)
   }
@@ -166,10 +179,14 @@ export function SubjectsPage() {
         semester: form.semester.trim(),
         credits: Math.max(0, Number(form.credits) || 0),
         faculty: form.faculty.trim() || null,
+        facultyEmail: form.facultyEmail.trim() || null,
+        officeHours: form.officeHours.trim() || null,
         category: form.category || null,
         customMinTarget:
           form.customMinTarget.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.customMinTarget))),
         color: form.color || null,
+        notes: form.notes.trim() || null,
+        link: form.link.trim() || null,
       }
       if (editing) {
         await update(editing.id, payload)
@@ -301,11 +318,52 @@ export function SubjectsPage() {
                         style={{ backgroundColor: subject.color ?? 'var(--muted)' }}
                       />
                       {subject.name}
+                      {subject.link && (
+                        <a
+                          href={subject.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={subject.link}
+                          aria-label={`Open link for ${subject.name}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <LinkIcon className="size-3.5" />
+                        </a>
+                      )}
+                      {subject.notes && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <StickyNote className="size-3.5 shrink-0 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>{subject.notes}</TooltipContent>
+                        </Tooltip>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell>{subject.semester}</TableCell>
                   <TableCell>{subject.credits}</TableCell>
-                  <TableCell>{subject.faculty ?? '—'}</TableCell>
+                  <TableCell>
+                    {subject.faculty ? (
+                      subject.facultyEmail || subject.officeHours ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="underline decoration-dotted underline-offset-2">
+                              {subject.faculty}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {subject.facultyEmail && <div>{subject.facultyEmail}</div>}
+                            {subject.officeHours && <div>{subject.officeHours}</div>}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        subject.faculty
+                      )
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
                   <TableCell>{subject.category ?? '—'}</TableCell>
                   <TableCell>
                     {subject.archived ? (
@@ -430,6 +488,27 @@ export function SubjectsPage() {
                 </Select>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="faculty-email">Faculty email (optional)</Label>
+                <Input
+                  id="faculty-email"
+                  type="email"
+                  value={form.facultyEmail}
+                  onChange={(e) => setForm({ ...form, facultyEmail: e.target.value })}
+                  placeholder="name@christuniversity.in"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="office-hours">Office hours (optional)</Label>
+                <Input
+                  id="office-hours"
+                  value={form.officeHours}
+                  onChange={(e) => setForm({ ...form, officeHours: e.target.value })}
+                  placeholder="Mon/Wed 2-3pm, Cabin 214"
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="custom-min-target">Override minimum % (optional)</Label>
               <Input
@@ -471,6 +550,25 @@ export function SubjectsPage() {
                   />
                 ))}
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="subject-link">Link (optional)</Label>
+              <Input
+                id="subject-link"
+                type="url"
+                value={form.link}
+                onChange={(e) => setForm({ ...form, link: e.target.value })}
+                placeholder="Syllabus, drive folder, course page…"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="subject-notes">Notes (optional)</Label>
+              <Input
+                id="subject-notes"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                placeholder="Anything worth remembering about this subject"
+              />
             </div>
 
             <DialogFooter>

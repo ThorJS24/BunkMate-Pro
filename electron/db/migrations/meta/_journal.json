@@ -134,6 +134,55 @@
       "when": 1785465022402,
       "tag": "0018_adorable_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785502157634,
+      "tag": "0019_safe_mattie_franklin",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785509731897,
+      "tag": "0020_military_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785510360974,
+      "tag": "0021_curvy_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785510757772,
+      "tag": "0022_supreme_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785559518543,
+      "tag": "0023_marvelous_wind_dancer",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785559867066,
+      "tag": "0024_same_sleeper",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1785560063109,
+      "tag": "0025_slimy_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

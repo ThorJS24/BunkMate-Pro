@@ -11,6 +11,8 @@ interface SemestersState {
   setArchived: (id: number, archived: boolean) => Promise<Semester>
   /** Rejects with a human-readable message if the semester still has dependents. */
   remove: (id: number) => Promise<void>
+  /** Deletes the semester and everything scoped to it (subjects, timetable, exams, attendance). No dependents check. */
+  removeCascade: (id: number) => Promise<void>
 }
 
 export const useSemestersStore = create<SemestersState>((set, get) => ({
@@ -58,6 +60,11 @@ export const useSemestersStore = create<SemestersState>((set, get) => ({
 
   remove: async (id) => {
     await window.bunkmate.semesters.delete(id)
+    set({ semesters: get().semesters.filter((s) => s.id !== id) })
+  },
+
+  removeCascade: async (id) => {
+    await window.bunkmate.semesters.deleteCascade(id)
     set({ semesters: get().semesters.filter((s) => s.id !== id) })
   },
 }))

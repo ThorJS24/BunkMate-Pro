@@ -15,6 +15,8 @@ import * as leavePlansRepo from './leave-plans'
 import * as yellowFormsRepo from './yellow-forms'
 import * as settingsRepo from './settings'
 import * as periodTypeRulesRepo from './period-type-rules'
+import * as examsRepo from './exams'
+import * as clearDataRepo from './clear-data'
 import { PERIOD_TYPES } from '../../../src/db/schema'
 import { computeAttendance, aggregateOverall } from '../../../src/lib/attendance-engine'
 import { scopeRecordsToSubjects } from '../../../src/lib/semester-scope'
@@ -654,6 +656,49 @@ describe('semesters repository', () => {
     expect(semestersRepo.listSemesters(db)).toHaveLength(0)
   })
 
+  it('deleteSemesterCascade removes the semester along with its subjects, timetable slots, exams, and attendance', () => {
+    const semester = semestersRepo.createSemester(db, {
+      number: 1,
+      label: '2026-1',
+      startDate: '2026-01-01',
+      endDate: '2026-05-01',
+      periodsPerDay: 7,
+      lunchPeriod: 4,
+      isActive: false,
+    })
+    const subject = subjectsRepo.createSubject(db, {
+      name: 'Data Structures',
+      semester: '2026-1',
+      credits: 4,
+      faculty: null,
+      category: null,
+    })
+    timetableSlotsRepo.createTimetableSlot(db, {
+      semester: '2026-1',
+      day: 'mon',
+      period: 1,
+      subjectId: subject.id,
+      type: 'class',
+      startTime: null,
+      endTime: null,
+    })
+    attendanceRecordsRepo.createAttendanceRecord(db, {
+      subjectId: subject.id,
+      date: '2026-01-05',
+      period: 1,
+      status: 'present',
+      source: 'manual',
+      slotId: null,
+    })
+
+    semestersRepo.deleteSemesterCascade(db, semester.id)
+
+    expect(semestersRepo.listSemesters(db)).toHaveLength(0)
+    expect(subjectsRepo.listSubjects(db, { semester: '2026-1', includeArchived: true })).toHaveLength(0)
+    expect(timetableSlotsRepo.listTimetableSlots(db, { semester: '2026-1' })).toHaveLength(0)
+    expect(attendanceRecordsRepo.listAttendanceRecords(db, {})).toHaveLength(0)
+  })
+
   it('seeds semesters from pre-existing free-text semester values exactly once', () => {
     subjectsRepo.createSubject(db, {
       name: 'Data Structures',
@@ -686,7 +731,7 @@ describe('settings repository', () => {
     const db = createTestDb()
     const settings = settingsRepo.getSettings(db)
     expect(settings.id).toBe(1)
-    expect(settings.overallMinTarget).toBe(75)
+    expect(settings.overallMinTarget).toBe(85)
     expect(settings.subjectMinTarget).toBe(75)
 
     const updated = settingsRepo.updateSettings(db, {
@@ -702,5 +747,110 @@ describe('settings repository', () => {
     settingsRepo.ensureSettingsRow(db)
     expect(settingsRepo.getSettings(db).overallMinTarget).toBe(80)
     expect(settingsRepo.getSettings(db).subjectMinTarget).toBe(70)
+  })
+})
+
+describe('attendance records repository', () => {
+  let db: AppDatabase
+  beforeEach(() => {
+    db = createTestDb()
+  })
+
+  it('supports pagination limit and offset filters', () => {
+    const subject = subjectsRepo.createSubject(db, {
+      name: 'Algorithms',
+      semester: '2026-1',
+      credits: 4,
+      faculty: null,
+      category: null,
+    })
+
+    for (let p = 1; p <= 5; p++) {
+      attendanceRecordsRepo.createAttendanceRecord(db, {
+        subjectId: subject.id,
+        date: `2026-01-0${p}`,
+        period: p,
+        status: 'present',
+        source: 'manual',
+        slotId: null,
+      })
+    }
+
+    const allRecords = attendanceRecordsRepo.listAttendanceRecords(db)
+    expect(allRecords).toHaveLength(5)
+
+    const page1 = attendanceRecordsRepo.listAttendanceRecords(db, { limit: 2, offset: 0 })
+    expect(page1).toHaveLength(2)
+    expect(page1[0].period).toBe(1)
+    expect(page1[1].period).toBe(2)
+
+    const page2 = attendanceRecordsRepo.listAttendanceRecords(db, { limit: 2, offset: 2 })
+    expect(page2).toHaveLength(2)
+    expect(page2[0].period).toBe(3)
+    expect(page2[1].period).toBe(4)
+  })
+})
+
+describe('clearAllData', () => {
+  let db: AppDatabase
+  beforeEach(() => {
+    db = createTestDb()
+  })
+
+  it('wipes every academic-data table but keeps settings preferences (other than currentSemester)', () => {
+    const semester = semestersRepo.createSemester(db, {
+      number: 1,
+      label: '2026-1',
+      startDate: '2026-01-01',
+      endDate: '2026-05-01',
+      periodsPerDay: 7,
+      lunchPeriod: 4,
+      isActive: true,
+    })
+    const subject = subjectsRepo.createSubject(db, {
+      name: 'Data Structures',
+      semester: '2026-1',
+      credits: 4,
+      faculty: null,
+      category: null,
+    })
+    timetableSlotsRepo.createTimetableSlot(db, {
+      semester: '2026-1',
+      day: 'mon',
+      period: 1,
+      subjectId: subject.id,
+      type: 'class',
+      startTime: null,
+      endTime: null,
+    })
+    attendanceRecordsRepo.createAttendanceRecord(db, {
+      subjectId: subject.id,
+      date: '2026-01-05',
+      period: 1,
+      status: 'present',
+      source: 'manual',
+      slotId: null,
+    })
+    examsRepo.createExam(db, { name: 'Mid Sem', subjectId: subject.id, date: '2026-02-01', semester: '2026-1' })
+    holidaysRepo.createHoliday(db, { date: '2026-01-26', type: 'public', label: 'Republic Day' })
+    leavePlansRepo.createLeavePlan(db, { label: 'Trip', dates: ['2026-01-10'], status: 'planned' })
+    yellowFormsRepo.createYellowForm(db, { subjectId: subject.id, date: '2026-01-05', period: 1, reason: 'Medical' })
+    settingsRepo.updateSettings(db, { themePack: 'ocean', currentSemester: semester.label })
+
+    clearDataRepo.clearAllData(db)
+
+    expect(semestersRepo.listSemesters(db)).toHaveLength(0)
+    expect(subjectsRepo.listSubjects(db, { includeArchived: true })).toHaveLength(0)
+    expect(timetableSlotsRepo.listTimetableSlots(db, { semester: '2026-1' })).toHaveLength(0)
+    expect(attendanceRecordsRepo.listAttendanceRecords(db, {})).toHaveLength(0)
+    expect(examsRepo.listExams(db)).toHaveLength(0)
+    expect(holidaysRepo.listHolidays(db)).toHaveLength(0)
+    expect(leavePlansRepo.listLeavePlans(db)).toHaveLength(0)
+    expect(yellowFormsRepo.listYellowForms(db)).toHaveLength(0)
+
+    const settingsAfter = settingsRepo.getSettings(db)
+    expect(settingsAfter.currentSemester).toBe('')
+    // Preferences unrelated to the deleted data survive untouched.
+    expect(settingsAfter.themePack).toBe('ocean')
   })
 })

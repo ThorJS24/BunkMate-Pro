@@ -9,6 +9,7 @@ import {
   scheduledPeriodsForDates,
   projectRecords,
   jsDayToWeekday,
+  detectContinuousAbsence,
   type PeriodTypeRule,
   type TimetableSlotInput,
   type TimetableSlotWithSchedule,
@@ -396,5 +397,51 @@ describe('projectRecords + computeAttendance (simulator scenarios)', () => {
       rules: RULES,
     })
     expect(projected.get(SUBJECT_ID)!.overall.attended).toBe(1)
+  })
+})
+
+describe('detectContinuousAbsence', () => {
+  it('does not flag when there are no absent records at all', () => {
+    const result = detectContinuousAbsence({
+      records: [record({ date: '2026-07-01', status: 'present' })],
+      todayIso: '2026-07-31',
+    })
+    expect(result).toEqual({ flagged: false, lastPresentDate: null, daysSinceLastPresent: null })
+  })
+
+  it('does not flag a short gap under the 14-day threshold', () => {
+    const result = detectContinuousAbsence({
+      records: [record({ date: '2026-07-20', status: 'present' }), record({ date: '2026-07-22', status: 'absent' })],
+      todayIso: '2026-07-25',
+    })
+    expect(result.flagged).toBe(false)
+  })
+
+  it('flags a 14+ day gap with an explicit absence after the last presence', () => {
+    const result = detectContinuousAbsence({
+      records: [record({ date: '2026-07-01', status: 'present' }), record({ date: '2026-07-05', status: 'absent' })],
+      todayIso: '2026-07-16',
+    })
+    expect(result.flagged).toBe(true)
+    expect(result.lastPresentDate).toBe('2026-07-01')
+    expect(result.daysSinceLastPresent).toBe(15)
+  })
+
+  it('does not flag when the only absences are before the last presence', () => {
+    const result = detectContinuousAbsence({
+      records: [record({ date: '2026-07-01', status: 'absent' }), record({ date: '2026-07-20', status: 'present' })],
+      todayIso: '2026-08-05',
+    })
+    expect(result.flagged).toBe(false)
+  })
+
+  it('flags using the earliest absence date when there has never been a presence', () => {
+    const result = detectContinuousAbsence({
+      records: [record({ date: '2026-07-01', status: 'absent' }), record({ date: '2026-07-10', status: 'absent' })],
+      todayIso: '2026-07-20',
+    })
+    expect(result.flagged).toBe(true)
+    expect(result.lastPresentDate).toBeNull()
+    expect(result.daysSinceLastPresent).toBe(19)
   })
 })

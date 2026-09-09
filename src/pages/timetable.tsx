@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Trash2, Settings2, TriangleAlert, CopyPlus, CalendarRange, Table2, Import, Eraser, CalendarPlus, FileUp } from 'lucide-react'
+import { Trash2, Settings2, TriangleAlert, CopyPlus, CalendarRange, Table2, Import, Eraser, CalendarPlus, FileUp, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -24,13 +25,18 @@ import { WEEKDAYS, PERIOD_TYPES, type Weekday, type PeriodType, type PeriodTime 
 import type { TimetableSlot } from '../../electron/db/repositories/timetable-slots'
 import { validateTimetableDay } from '@/lib/timetable-rules'
 import { allocateEvenPeriodTimes } from '@/lib/period-time-allocation'
+import { friendlyError } from '@/lib/friendly-error'
 import { planDragDrop } from '@/lib/timetable-drag'
 import { planTimetableCopy } from '@/lib/timetable-copy'
 import { buildTimetableIcs } from '@/lib/timetable-ics'
 import { parseIcs } from '@/lib/ics-parser'
 import { planIcsTimetableImport, type IcsTimetableImportPlan } from '@/lib/timetable-ics-import'
 import { TimetableWeekGlance } from '@/components/timetable-week-glance'
+import { IcsUrlImportButton } from '@/components/ics-url-import-button'
+import { resolveSubjectColor } from '@/lib/chart-colors'
 import { cn } from '@/lib/utils'
+
+import { getPeriodDisplayLabel } from '@/lib/period-display'
 
 const DAY_LABELS: Record<Weekday, string> = {
   mon: 'Mon',
@@ -128,6 +134,14 @@ export function TimetablePage() {
   )
 
   const subjectsById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
+
+  // A subject's own chosen color if set, else a stable palette slot by id
+  // order — matching how Week overview and Analytics color subjects, so the
+  // editable grid doesn't disagree with either.
+  const colorBySubjectId = useMemo(() => {
+    const sorted = [...subjects].sort((a, b) => a.id - b.id)
+    return new Map(sorted.map((s, i) => [s.id, resolveSubjectColor(s.color, i)]))
+  }, [subjects])
 
   // Slots still using the retired 'project' type, for this semester — the
   // reassignment banner's whole reason to exist. Sorted so the list reads
@@ -306,10 +320,8 @@ export function TimetablePage() {
   // recurring weekly events are usable; period numbers are inferred from
   // chronological start time per day, and existing cells are never
   // overwritten — see planIcsTimetableImport for the full rationale.
-  async function handleImportTimetableIcs() {
-    const file = await window.bunkmate.files.openTextFile({ filters: [{ name: 'iCalendar', extensions: ['ics'] }] })
-    if (!file) return
-    const events = parseIcs(file.content)
+  function handleImportTimetableIcsText(text: string, source: string) {
+    const events = parseIcs(text)
     const plan = planIcsTimetableImport({
       events,
       occupiedCells: new Set(slots.map((s) => `${s.day}:${s.period}`)),
@@ -321,13 +333,19 @@ export function TimetablePage() {
         description:
           plan.skipped > 0
             ? `${plan.skipped} period${plan.skipped === 1 ? '' : 's'} skipped: already filled, or beyond ${periodsPerDay} periods/day.`
-            : `Couldn't find a weekly class schedule in ${file.name}.`,
+            : `Couldn't find a weekly class schedule in ${source}.`,
       })
       return
     }
     setImportPlan(plan)
-    setImportSource(file.name)
+    setImportSource(source)
     setImportTimetableOpen(true)
+  }
+
+  async function handleImportTimetableIcs() {
+    const file = await window.bunkmate.files.openTextFile({ filters: [{ name: 'iCalendar', extensions: ['ics'] }] })
+    if (!file) return
+    handleImportTimetableIcsText(file.content, file.name)
   }
 
   async function applyImportTimetable() {
@@ -460,7 +478,8 @@ export function TimetablePage() {
       setPendingPeriodTimes(times)
     } catch (err) {
       setPendingPeriodTimes(null)
-      pushToast({ title: "Can't auto-allocate times", description: err instanceof Error ? err.message : String(err) })
+      const fe = friendlyError(err, "Can't auto-allocate times")
+      pushToast({ title: "Can't auto-allocate times", description: fe.message, detail: fe.detail })
     }
   }
 
@@ -555,46 +574,69 @@ export function TimetablePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Timetable</h1>
-        <div className="flex items-center gap-3">
+    <div className="space-y-6">
+      {/* Hero Header & Quick Stats */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold">Weekly Timetable</h1>
+            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-xs">
+              {activeSemester?.label ?? semester}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage your weekly class schedule, period time slots, and timetable exports.
+          </p>
+        </div>
+
+        <div className="no-print flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => window.print()} title="Print this timetable">
+            <Printer className="size-3.5 mr-1.5" /> Print
+          </Button>
           <SemesterSwitcher />
-          <div className="flex rounded-md border p-0.5">
+          <div className="flex rounded-lg border p-1 bg-muted/30">
             <Button
               variant={view === 'grid' ? 'default' : 'ghost'}
               size="sm"
-              className="h-7"
+              className="h-7 text-xs gap-1.5"
               onClick={() => setView('grid')}
             >
-              <Table2 /> Grid
+              <Table2 className="size-3.5" /> Grid View
             </Button>
             <Button
               variant={view === 'week' ? 'default' : 'ghost'}
               size="sm"
-              className="h-7"
+              className="h-7 text-xs gap-1.5"
               onClick={() => setView('week')}
             >
-              <CalendarRange /> Week overview
+              <CalendarRange className="size-3.5" /> Overview
             </Button>
           </div>
-          {view === 'grid' && (
-            <>
+        </div>
+      </div>
+
+      {/* Secondary Action Toolbar */}
+      {view === 'grid' && (
+        <Card className="p-3 bg-card/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 text-xs"
                 onClick={() => {
                   setCopyFromSemesterLabel('')
                   setCopyFromOpen(true)
                 }}
                 disabled={!activeSemester || otherSemesters.length === 0}
-                title="Copy an entire timetable from another semester into the empty cells here"
+                title="Copy an entire timetable from another semester into empty cells"
               >
-                <Import /> Copy from…
+                <Import className="size-3.5 mr-1.5" /> Copy from Semester
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 text-xs"
                 onClick={() => {
                   setCopySourceDay('mon')
                   setCopyTargetDays({})
@@ -602,50 +644,58 @@ export function TimetablePage() {
                 }}
                 disabled={!activeSemester || slots.length === 0}
               >
-                <CopyPlus /> Copy day
+                <CopyPlus className="size-3.5 mr-1.5" /> Copy Day
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={exportIcs}
-                disabled={!activeSemester || !hasPeriodTimes || slots.length === 0}
-                title={
-                  hasPeriodTimes
-                    ? 'Export to a calendar (.ics) with real class times'
-                    : 'Set class times first (Grid settings → Auto-allocate times) to export real times'
-                }
+                className="h-8 text-xs"
+                onClick={() => {
+                  if (!hasPeriodTimes) {
+                    pushToast({
+                      title: 'Set class times first',
+                      description: 'Opening Grid settings — use "Auto-allocate times", then try exporting again.',
+                    })
+                    openGridSettings()
+                    return
+                  }
+                  exportIcs()
+                }}
+                disabled={!activeSemester || slots.length === 0}
               >
-                <CalendarPlus /> Export .ics
+                <CalendarPlus className="size-3.5 mr-1.5" /> Export .ics
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 text-xs"
                 onClick={handleImportTimetableIcs}
                 disabled={!activeSemester}
-                title="Import a weekly schedule from a calendar (.ics), yours or a classmate's export"
               >
-                <FileUp /> Import .ics
+                <FileUp className="size-3.5 mr-1.5" /> Import .ics
               </Button>
-              <Button variant="outline" size="sm" onClick={openGridSettings} disabled={!activeSemester}>
-                <Settings2 /> Grid settings
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+              {activeSemester && <IcsUrlImportButton size="sm" onIcsText={handleImportTimetableIcsText} />}
+            </div>
+
+            <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={openGridSettings} disabled={!activeSemester}>
+              <Settings2 className="size-3.5 mr-1.5" /> Grid Settings ({periodsPerDay} P/Day)
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {projectSlots.length > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           <div className="flex items-center gap-2">
-            <TriangleAlert className="size-4 shrink-0 text-warning" />
+            <TriangleAlert className="size-4 shrink-0 text-amber-500" />
             <span>
               {projectSlots.length === 1
-                ? '1 period still uses the retired "project" type. Reassign it to a real subject.'
-                : `${projectSlots.length} periods still use the retired "project" type. Reassign them to a real subject.`}
+                ? "1 period is still marked as generic \"Project Work\" — assign it to a subject."
+                : `${projectSlots.length} periods are still marked as generic "Project Work" — assign them to subjects.`}
             </span>
           </div>
           <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
-            Reassign now
+            Assign now
           </Button>
         </div>
       )}
@@ -659,101 +709,145 @@ export function TimetablePage() {
           onCellClick={goToGridCell}
         />
       ) : (
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="w-20 p-2 text-left font-medium text-muted-foreground">Period</th>
-              {WEEKDAYS.map((day) => {
-                const dayHasSlots = slots.some((s) => s.day === day)
-                return (
-                  <th key={day} className="p-2 text-left font-medium text-muted-foreground">
-                    <span className="group flex items-center gap-1">
-                      {DAY_LABELS[day]}
-                      {dayHasSlots && (
-                        <button
-                          type="button"
-                          onClick={() => setClearDayTarget(day)}
-                          title={`Clear all of ${DAY_LABELS[day]}`}
-                          aria-label={`Clear all of ${DAY_LABELS[day]}`}
-                          className="text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                        >
-                          <Eraser className="size-3.5" />
-                        </button>
-                      )}
-                    </span>
-                  </th>
-                )
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {PERIODS.map((period) => {
-              const time = periodTimeByPeriod.get(period)
-              return (
-              <tr key={period} className="border-b last:border-0">
-                <td className="p-2 font-medium text-muted-foreground">
-                  {time ? `P${period} · ${time.startTime}–${time.endTime}` : `Period ${period}`}
-                </td>
-                {WEEKDAYS.map((day) => {
-                  const slot = slotAt.get(`${day}:${period}`)
-                  const subjectName = slot?.subjectId ? subjectsById.get(slot.subjectId)?.name : undefined
-                  const isDragSource = draggedFrom?.day === day && draggedFrom.period === period
-                  const isDragOver = dragOverCell?.day === day && dragOverCell.period === period
+        <Card className="overflow-hidden border">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40 text-xs">
+                  <th className="w-24 p-3 text-left font-semibold text-muted-foreground border-r">Time & Period</th>
+                  {WEEKDAYS.map((day) => {
+                    const daySlots = slots.filter((s) => s.day === day)
+                    return (
+                      <th key={day} className="p-3 text-left font-semibold text-muted-foreground border-r last:border-r-0 min-w-[140px]">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-foreground text-sm">{DAY_LABELS[day]}</span>
+                          <div className="flex items-center gap-1">
+                            <Badge variant="secondary" className="font-normal text-[10px] px-1.5">
+                              {daySlots.length} class{daySlots.length === 1 ? '' : 'es'}
+                            </Badge>
+                            {daySlots.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setClearDayTarget(day)}
+                                title={`Clear all of ${DAY_LABELS[day]}`}
+                                aria-label={`Clear all of ${DAY_LABELS[day]}`}
+                                className="text-muted-foreground/60 transition-colors hover:text-destructive p-0.5 rounded"
+                              >
+                                <Eraser className="size-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {PERIODS.map((period) => {
+                  const time = periodTimeByPeriod.get(period)
+                  const isLunchRow = period === lunchPeriod
                   return (
-                    <td key={day} className="p-1 align-top">
-                      <button
-                        type="button"
-                        onClick={() => openCell(day, period)}
-                        draggable={!!slot}
-                        onDragStart={(e) => {
-                          setDraggedFrom({ day, period })
-                          e.dataTransfer.effectAllowed = 'move'
-                        }}
-                        onDragEnd={() => {
-                          setDraggedFrom(null)
-                          setDragOverCell(null)
-                        }}
-                        onDragOver={(e) => {
-                          if (!draggedFrom) return
-                          e.preventDefault()
-                          e.dataTransfer.dropEffect = 'move'
-                        }}
-                        onDragEnter={() => {
-                          if (draggedFrom) setDragOverCell({ day, period })
-                        }}
-                        onDragLeave={() => {
-                          setDragOverCell((prev) => (prev?.day === day && prev.period === period ? null : prev))
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault()
-                          void handleDrop(day, period)
-                        }}
-                        className={cn(
-                          'flex h-16 w-full flex-col items-start justify-center gap-1 rounded-md border border-dashed p-2 text-left transition-colors hover:bg-accent',
-                          slot && 'cursor-grab border-solid bg-card active:cursor-grabbing',
-                          isDragSource && 'opacity-40',
-                          isDragOver && 'ring-2 ring-primary ring-offset-1',
-                        )}
-                      >
-                        {slot ? (
-                          <>
-                            <Badge variant={TYPE_VARIANT[slot.type as PeriodType] ?? 'default'}>{slot.type}</Badge>
-                            {subjectName && <span className="truncate text-xs">{subjectName}</span>}
-                          </>
+                    <tr key={period} className={cn('transition-colors', isLunchRow ? 'bg-amber-500/5 hover:bg-amber-500/10' : 'hover:bg-muted/10')}>
+                      <td className={cn('p-3 font-medium text-xs border-r', isLunchRow ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'bg-muted/10 text-muted-foreground')}>
+                        <div className={cn('font-semibold', isLunchRow ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-foreground')}>
+                          {getPeriodDisplayLabel(period, lunchPeriod)}
+                        </div>
+                        {time ? (
+                          <div className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+                            {time.startTime} – {time.endTime}
+                          </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">+ Add</span>
+                          <div className="text-[10px] text-muted-foreground/60 mt-0.5">Unset time</div>
                         )}
-                      </button>
-                    </td>
+                      </td>
+                      {WEEKDAYS.map((day) => {
+                        const slot = slotAt.get(`${day}:${period}`)
+                        const subjectName = slot?.subjectId ? subjectsById.get(slot.subjectId)?.name : undefined
+                        const subjectColor = slot?.subjectId ? colorBySubjectId.get(slot.subjectId) : undefined
+                        const isDragSource = draggedFrom?.day === day && draggedFrom.period === period
+                        const isDragOver = dragOverCell?.day === day && dragOverCell.period === period
+                        return (
+                          <td key={day} className="p-1.5 align-top border-r last:border-r-0">
+                            <button
+                              type="button"
+                              onClick={() => openCell(day, period)}
+                              draggable={!!slot}
+                              onDragStart={(e) => {
+                                setDraggedFrom({ day, period })
+                                e.dataTransfer.effectAllowed = 'move'
+                              }}
+                              onDragEnd={() => {
+                                setDraggedFrom(null)
+                                setDragOverCell(null)
+                              }}
+                              onDragOver={(e) => {
+                                if (!draggedFrom) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                              }}
+                              onDragEnter={() => {
+                                if (draggedFrom) setDragOverCell({ day, period })
+                              }}
+                              onDragLeave={() => {
+                                setDragOverCell((prev) => (prev?.day === day && prev.period === period ? null : prev))
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                void handleDrop(day, period)
+                              }}
+                              className={cn(
+                                'flex h-20 w-full flex-col items-start justify-between rounded-lg border p-2 text-left transition-all duration-150',
+                                slot ? 'border-solid bg-card shadow-xs hover:border-primary/50 cursor-grab active:cursor-grabbing' : 'border-dashed hover:border-muted-foreground/40 hover:bg-accent/40',
+                                isLunchRow && !slot && 'bg-amber-500/5 border-amber-500/20 text-amber-600 dark:text-amber-400',
+                                isDragSource && 'opacity-30 border-dashed',
+                                isDragOver && 'ring-2 ring-primary ring-offset-1 bg-primary/10',
+                              )}
+                              style={
+                                slot && subjectColor
+                                  ? { borderLeftWidth: '4px', borderLeftColor: subjectColor }
+                                  : undefined
+                              }
+                            >
+                              {slot ? (
+                                <>
+                                  <div className="flex items-center justify-between w-full">
+                                    <Badge
+                                      variant={TYPE_VARIANT[slot.type as PeriodType] ?? 'default'}
+                                      className="text-[10px] px-1.5 py-0 capitalize"
+                                    >
+                                      {slot.type}
+                                    </Badge>
+                                    {slot.startTime && slot.endTime && (
+                                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                                        {slot.startTime}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {subjectName ? (
+                                    <div className="w-full mt-1">
+                                      <div className="font-medium text-xs truncate leading-snug">{subjectName}</div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-muted-foreground capitalize italic mt-1">{slot.type}</div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="flex items-center justify-center w-full h-full text-muted-foreground/40 text-xs font-medium gap-1">
+                                  <span>{isLunchRow ? '🍱 Lunch' : '+ Add'}</span>
+                                </div>
+                              )}
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
                   )
                 })}
-              </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       <Dialog open={dialogTarget !== null} onOpenChange={(open) => !open && setDialogTarget(null)}>
@@ -761,7 +855,7 @@ export function TimetablePage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <DialogHeader>
               <DialogTitle>
-                {dialogTarget && `${DAY_LABELS[dialogTarget.day]} · Period ${dialogTarget.period}`}
+                {dialogTarget && `${DAY_LABELS[dialogTarget.day]} · ${getPeriodDisplayLabel(dialogTarget.period, lunchPeriod)}`}
               </DialogTitle>
               <DialogDescription>Assign a period type and, if applicable, a subject.</DialogDescription>
             </DialogHeader>
@@ -943,11 +1037,11 @@ export function TimetablePage() {
       <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reassign retired "project" periods</DialogTitle>
+            <DialogTitle>Assign "Project Work" periods to a subject</DialogTitle>
             <DialogDescription>
-              Project work is now scheduled as a real subject (type "class"), not this typeless bucket. Pick a
-              subject for each period below. It'll switch to type "class" and start counting toward that
-              subject's own attendance instead of the generic Project Work total.
+              These periods were set up before Project Work had its own subject entry. Pick which subject each one
+              belongs to below, and it'll start counting toward that subject's attendance instead of a separate,
+              unnamed total.
             </DialogDescription>
           </DialogHeader>
 

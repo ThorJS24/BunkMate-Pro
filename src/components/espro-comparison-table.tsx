@@ -45,7 +45,7 @@ export function EsproComparisonTable({ rows }: { rows: AttendanceComparisonRow[]
             </TableCell>
             <TableCell className="px-1.5">
               {row.status === 'match' && <Badge variant="success">Match</Badge>}
-              {row.status === 'mismatch' && <Badge variant="warning">Off</Badge>}
+              {row.status === 'mismatch' && <Badge variant="warning">Mismatch</Badge>}
               {row.status === 'espro-only' && <Badge variant="outline">ESPRO only</Badge>}
               {row.status === 'local-only' && <Badge variant="outline">Local only</Badge>}
             </TableCell>

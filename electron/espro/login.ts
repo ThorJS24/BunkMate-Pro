@@ -25,6 +25,7 @@
 //
 // STILL UNCONFIRMED: the actual attendance-data API endpoint and response
 // shape — sync.ts's fetchEsproAttendance is still a stub pending that.
+import crypto from 'node:crypto'
 import { net } from 'electron'
 import {
   applySetCookies,
@@ -37,17 +38,75 @@ import {
 import { generateCodeVerifier, generateCodeChallenge, generateRandomToken } from './pkce'
 import { extractLoginFormAction, isKeycloakLoginFormResponse, extractFragmentCode } from './keycloak-html'
 
+export interface DPoPKeyPair {
+  privateKey: crypto.KeyObject
+  publicKey: crypto.KeyObject
+}
+
+export function generateDPoPKeyPair(): DPoPKeyPair {
+  return crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' })
+}
+
+function base64UrlEncode(buffer: Buffer): string {
+  return buffer.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+}
+
+export function generateDPoPProof(
+  method: string,
+  url: string,
+  keyPair: DPoPKeyPair,
+  nonce?: string,
+): string {
+  const htu = url.split('?')[0].split('#')[0]
+  const jwkFull = keyPair.publicKey.export({ format: 'jwk' })
+  const jwk = { kty: jwkFull.kty, crv: jwkFull.crv, x: jwkFull.x, y: jwkFull.y }
+
+  const header = { typ: 'dpop+jwt', alg: 'ES256', jwk }
+  const payload: Record<string, unknown> = {
+    jti: crypto.randomBytes(16).toString('hex'),
+    htm: method.toUpperCase(),
+    htu,
+    iat: Math.floor(Date.now() / 1000),
+  }
+  if (nonce) {
+    payload.nonce = nonce
+  }
+
+  const encodedHeader = base64UrlEncode(Buffer.from(JSON.stringify(header)))
+  const encodedPayload = base64UrlEncode(Buffer.from(JSON.stringify(payload)))
+  const dataToSign = `${encodedHeader}.${encodedPayload}`
+
+  const sig = crypto.sign('SHA256', Buffer.from(dataToSign), {
+    key: keyPair.privateKey,
+    dsaEncoding: 'ieee-p1363',
+  })
+  return `${dataToSign}.${base64UrlEncode(sig)}`
+}
+
+function extractHeaderValue(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
+  const lcName = name.toLowerCase()
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === lcName) {
+      return Array.isArray(v) ? v[0] : v
+    }
+  }
+  return undefined
+}
+
 export interface EsproSession {
   accessToken: string
   refreshToken: string
+  tokenType: string
   /** Epoch ms when accessToken expires. */
   expiresAt: number
   /** The SPA's own origin (not the Keycloak auth server) — where attendance API calls are made. */
   baseUrl: string
+  dpopKeys?: DPoPKeyPair
 }
 
 export const ESPRO_BASE = 'https://espro.christuniversity.in:444'
-const KEYCLOAK_BASE = 'https://studentespro.christuniversity.in:8010'
+export const CUE_REDIRECT_URI = 'https://cue.christuniversity.in/'
+const KEYCLOAK_BASE = 'https://studentespro.christuniversity.in'
 const AUTHORIZE_URL = `${KEYCLOAK_BASE}/auth/realms/Student/protocol/openid-connect/auth`
 const TOKEN_URL = `${KEYCLOAK_BASE}/auth/realms/Student/protocol/openid-connect/token`
 const CLIENT_ID = 'react-app'
@@ -124,17 +183,86 @@ async function exchangeCodeForSession(params: {
     client_id: CLIENT_ID,
     code_verifier: params.codeVerifier,
   })
-  const res = await httpRequest({
+
+  const dpopKeys = generateDPoPKeyPair()
+
+  let dpopProof = generateDPoPProof('POST', TOKEN_URL, dpopKeys)
+  let res = await httpRequest({
     method: 'POST',
     url: TOKEN_URL,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      DPoP: dpopProof,
+    },
     body,
     step: 'exchanging the ESPRO login code for an access token',
   })
-  if (res.status !== 200) {
-    throw new EsproLoginError('unexpected', `ESPRO token exchange failed (HTTP ${res.status}).`)
+
+  const dpopNonce = extractHeaderValue(res.headers, 'dpop-nonce')
+  if (res.status !== 200 && dpopNonce) {
+    dpopProof = generateDPoPProof('POST', TOKEN_URL, dpopKeys, dpopNonce)
+    res = await httpRequest({
+      method: 'POST',
+      url: TOKEN_URL,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        DPoP: dpopProof,
+      },
+      body,
+      step: 'exchanging the ESPRO login code for an access token (with nonce)',
+    })
   }
-  let parsed: { access_token?: string; refresh_token?: string; expires_in?: number }
+
+  if (res.status !== 200 && params.redirectUri.endsWith('/')) {
+    const fallbackUri = params.redirectUri.slice(0, -1)
+    const fallbackBody = formEncode({
+      grant_type: 'authorization_code',
+      code: params.code,
+      redirect_uri: fallbackUri,
+      client_id: CLIENT_ID,
+      code_verifier: params.codeVerifier,
+    })
+    let fallbackDpop = generateDPoPProof('POST', TOKEN_URL, dpopKeys)
+    let fallbackRes = await httpRequest({
+      method: 'POST',
+      url: TOKEN_URL,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        DPoP: fallbackDpop,
+      },
+      body: fallbackBody,
+      step: 'exchanging the ESPRO login code for an access token (fallback)',
+    })
+    const fallbackNonce = extractHeaderValue(fallbackRes.headers, 'dpop-nonce')
+    if (fallbackRes.status !== 200 && fallbackNonce) {
+      fallbackDpop = generateDPoPProof('POST', TOKEN_URL, dpopKeys, fallbackNonce)
+      fallbackRes = await httpRequest({
+        method: 'POST',
+        url: TOKEN_URL,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          DPoP: fallbackDpop,
+        },
+        body: fallbackBody,
+        step: 'exchanging the ESPRO login code for an access token (fallback with nonce)',
+      })
+    }
+    if (fallbackRes.status === 200) {
+      res = fallbackRes
+    }
+  }
+  if (res.status !== 200) {
+    let errDetail = ''
+    try {
+      const errObj = JSON.parse(res.body)
+      if (errObj.error_description) errDetail = `: ${errObj.error_description}`
+      else if (errObj.error) errDetail = `: ${errObj.error}`
+    } catch {
+      if (res.body) errDetail = `: ${res.body.slice(0, 150)}`
+    }
+    throw new EsproLoginError('unexpected', `ESPRO token exchange failed (HTTP ${res.status}${errDetail}).`)
+  }
+  let parsed: { access_token?: string; refresh_token?: string; expires_in?: number; token_type?: string }
   try {
     parsed = JSON.parse(res.body)
   } catch {
@@ -146,8 +274,10 @@ async function exchangeCodeForSession(params: {
   return {
     accessToken: parsed.access_token,
     refreshToken: parsed.refresh_token ?? '',
+    tokenType: parsed.token_type ?? 'Bearer',
     expiresAt: Date.now() + (parsed.expires_in ?? 300) * 1000,
     baseUrl: ESPRO_BASE,
+    dpopKeys,
   }
 }
 
@@ -161,7 +291,7 @@ export async function esproLogin(creds: { username: string; password: string }):
   const codeChallenge = generateCodeChallenge(codeVerifier)
   const state = generateRandomToken()
   const nonce = generateRandomToken()
-  const redirectUri = `${ESPRO_BASE}/`
+  const redirectUri = CUE_REDIRECT_URI
 
   const authorizeUrl = `${AUTHORIZE_URL}?${formEncode({
     client_id: CLIENT_ID,
@@ -169,7 +299,7 @@ export async function esproLogin(creds: { username: string; password: string }):
     state,
     response_mode: 'fragment',
     response_type: 'code',
-    scope: 'openid',
+    scope: 'openid profile email',
     nonce,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
@@ -177,10 +307,27 @@ export async function esproLogin(creds: { username: string; password: string }):
 
   const jar: CookieJar = new Map()
 
-  // 1. GET the authorize URL -> Keycloak's rendered login form, carrying the
-  // session_code/execution/tab_id/client_data this specific attempt needs.
-  const authPage = await httpRequest({ method: 'GET', url: authorizeUrl, step: 'loading the ESPRO login page' })
+  // 1. GET the authorize URL -> Keycloak's rendered login form. Follow 3xx
+  // redirects so we fetch the actual rendered HTML form page, not just the 302 header.
+  let authPage = await httpRequest({ method: 'GET', url: authorizeUrl, step: 'loading the ESPRO login page' })
   applySetCookies(jar, headerToArray(authPage.headers['set-cookie']))
+
+  let effectiveUrl = authorizeUrl
+  let redirectCount = 0
+  while (authPage.status >= 300 && authPage.status < 400 && redirectCount < 5) {
+    const loc = headerToArray(authPage.headers['location'])[0]
+    if (!loc) break
+    effectiveUrl = loc.startsWith('http') ? loc : new URL(loc, effectiveUrl).href
+    authPage = await httpRequest({
+      method: 'GET',
+      url: effectiveUrl,
+      headers: { Cookie: serializeCookies(jar) },
+      step: 'following ESPRO login redirect',
+    })
+    applySetCookies(jar, headerToArray(authPage.headers['set-cookie']))
+    redirectCount++
+  }
+
   const formAction = extractLoginFormAction(authPage.body)
   if (!formAction) {
     throw new EsproLoginError(
@@ -189,12 +336,16 @@ export async function esproLogin(creds: { username: string; password: string }):
     )
   }
 
+  const resolvedFormAction = formAction.startsWith('http')
+    ? formAction
+    : new URL(formAction, effectiveUrl).href
+
   // 2. POST credentials to that exact action URL. credentialId stays empty —
   // it's Keycloak's WebAuthn/passkey selector, unused for password login.
   const body = formEncode({ username: creds.username, password: creds.password, credentialId: '' })
   const loginPost = await httpRequest({
     method: 'POST',
-    url: formAction,
+    url: resolvedFormAction,
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Cookie: serializeCookies(jar),

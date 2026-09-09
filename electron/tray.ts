@@ -1,6 +1,7 @@
 import { Tray, Menu, nativeImage, app, type BrowserWindow } from 'electron'
 import type { AppDatabase } from './db/client'
 import { computeOverallSummary } from './attendance-summary'
+import { toggleMiniWindow } from './mini-window'
 
 // 16x16 ink-blue tray icon (generated PNG; see the git history for how). Kept
 // inline so there's no runtime asset path to resolve differently in dev vs a
@@ -57,6 +58,7 @@ export function createTray(
         { label: `${attended} / ${total} periods`, enabled: false },
         { type: 'separator' },
         { label: 'Open BunkMate', click: showWindow },
+        { label: 'Mini mode', click: () => toggleMiniWindow() },
         {
           label: 'Quit',
           click: () => {

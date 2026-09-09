@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { TimetableSlot } from '../../electron/db/repositories/timetable-slots'
-import { Download } from 'lucide-react'
+import { Download, FileCheck2 } from 'lucide-react'
 import {
   ResponsiveContainer,
   BarChart,
@@ -36,7 +36,7 @@ import {
   type TrendGranularity,
 } from '@/lib/attendance-trend'
 import { resolveSubjectColor, sequentialColor } from '@/lib/chart-colors'
-import { buildSubjectRows, exportReport, type ReportFormat } from '@/lib/report-export'
+import { buildSubjectRows, exportReport, buildAttendanceCertificatePdf, type ReportFormat } from '@/lib/report-export'
 import { scopeRecordsToSubjects } from '@/lib/semester-scope'
 import { useToastStore } from '@/store/toast-store'
 import { todayIso } from '@/lib/date-utils'
@@ -56,8 +56,9 @@ function mondayOnOrBefore(iso: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-const HEATMAP_WEEKS = 12
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const HEATMAP_RANGES = { '12w': 12, year: 52 } as const
+type HeatmapRange = keyof typeof HEATMAP_RANGES
 const WEEKDAY_SHORT_LABELS: Record<string, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' }
 
 export function AnalyticsPage() {
@@ -78,6 +79,7 @@ export function AnalyticsPage() {
   const pushToast = useToastStore((s) => s.push)
 
   const [granularity, setGranularity] = useState<TrendGranularity>('week')
+  const [heatmapRange, setHeatmapRange] = useState<HeatmapRange>('12w')
   const [exporting, setExporting] = useState(false)
   const [slotsBySemester, setSlotsBySemester] = useState<Record<string, TimetableSlot[]>>({})
 
@@ -188,18 +190,19 @@ export function AnalyticsPage() {
   }, [weekdayData])
 
   const heatmapWeeks = useMemo(() => {
+    const weekCount = HEATMAP_RANGES[heatmapRange]
     const endWeekMonday = mondayOnOrBefore(todayIso())
-    const startWeekMonday = addDaysIso(endWeekMonday, -7 * (HEATMAP_WEEKS - 1))
+    const startWeekMonday = addDaysIso(endWeekMonday, -7 * (weekCount - 1))
     const weeks: string[][] = []
     let weekStart = startWeekMonday
-    for (let w = 0; w < HEATMAP_WEEKS; w++) {
+    for (let w = 0; w < weekCount; w++) {
       const days: string[] = []
       for (let d = 0; d < 7; d++) days.push(addDaysIso(weekStart, d))
       weeks.push(days)
       weekStart = addDaysIso(weekStart, 7)
     }
     return weeks
-  }, [])
+  }, [heatmapRange])
 
   async function handleExport(format: ReportFormat) {
     setExporting(true)
@@ -234,6 +237,30 @@ export function AnalyticsPage() {
     }
   }
 
+  async function handleExportCertificate() {
+    setExporting(true)
+    try {
+      const generatedAt = new Date().toISOString()
+      const buffer = await buildAttendanceCertificatePdf({
+        generatedAt,
+        semester: currentSemester || '—',
+        overallMinTarget,
+        overall,
+        subjects: subjectRows,
+        attendanceHistory: [],
+        leaveHistory: [],
+      })
+      const path = await window.bunkmate.files.saveFile({
+        defaultName: `bunkmate-attendance-certificate-${generatedAt.slice(0, 10)}.pdf`,
+        content: buffer,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      })
+      if (path) pushToast({ title: 'Certificate saved', description: path })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -249,6 +276,14 @@ export function AnalyticsPage() {
             </Button>
             <Button variant="outline" disabled={exporting} onClick={() => handleExport('pdf')}>
               <Download /> PDF
+            </Button>
+            <Button
+              variant="outline"
+              disabled={exporting}
+              onClick={handleExportCertificate}
+              title="A short, one-page proof of attendance to hand to faculty or administration"
+            >
+              <FileCheck2 /> Certificate
             </Button>
           </div>
         </div>
@@ -394,9 +429,22 @@ export function AnalyticsPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Attendance heatmap</CardTitle>
-          <CardDescription>Last {HEATMAP_WEEKS} weeks, one square per day.</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle>Attendance heatmap</CardTitle>
+            <CardDescription>
+              Last {HEATMAP_RANGES[heatmapRange]} weeks, one square per day.
+            </CardDescription>
+          </div>
+          <Select value={heatmapRange} onValueChange={(v) => setHeatmapRange(v as HeatmapRange)}>
+            <SelectTrigger className="w-32" aria-label="Heatmap range">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="12w">12 weeks</SelectItem>
+              <SelectItem value="year">Full year</SelectItem>
+            </SelectContent>
+          </Select>
         </CardHeader>
         <CardContent>
           <div className="flex gap-1 overflow-x-auto pb-2">

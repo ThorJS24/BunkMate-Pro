@@ -22,6 +22,13 @@ export function SemesterSwitcher({ className }: { className?: string }) {
 
   const visible = semesters.filter((s) => !s.archived).sort((a, b) => a.number - b.number)
 
+  useEffect(() => {
+    if (!currentSemester && visible.length > 0) {
+      const active = visible.find((s) => s.isActive) ?? visible[0]
+      if (active) setCurrentSemester(active.label)
+    }
+  }, [currentSemester, visible, setCurrentSemester])
+
   if (visible.length === 0) return null
 
   return (

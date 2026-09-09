@@ -1,6 +1,6 @@
 import { eq, ne } from 'drizzle-orm'
 import type { AppDatabase } from '../client'
-import { semesters, subjects, timetableSlots, settings, SETTINGS_SINGLETON_ID } from '../../../src/db/schema'
+import { semesters, subjects, timetableSlots, exams, settings, SETTINGS_SINGLETON_ID } from '../../../src/db/schema'
 import { ensureSettingsRow } from './settings'
 
 export type Semester = typeof semesters.$inferSelect
@@ -163,6 +163,29 @@ export function deleteSemester(db: AppDatabase, id: number): void {
     )
   }
   db.delete(semesters).where(eq(semesters.id, id)).run()
+}
+
+/**
+ * The deliberately dangerous counterpart to deleteSemester: takes the
+ * semester's subjects, timetable slots, and exams with it — subjects cascade
+ * their own attendance records and yellow forms via each table's own FK
+ * (see schema.ts), timetable slots and exams are deleted directly here since
+ * their FK to subjects is 'set null', not cascade, and a leftover slot/exam
+ * pointing at nothing isn't what "delete this semester" should mean. Exists
+ * for exactly one legitimate case: throwing away a semester (e.g. the sample
+ * data seeded by "try it with sample data") that was never meant to be kept
+ * — never call this from a path a real semester's data could reach by
+ * accident. All-or-nothing in one transaction.
+ */
+export function deleteSemesterCascade(db: AppDatabase, id: number): void {
+  const semester = getSemester(db, id)
+  if (!semester) return
+  db.transaction((tx) => {
+    tx.delete(timetableSlots).where(eq(timetableSlots.semester, semester.label)).run()
+    tx.delete(exams).where(eq(exams.semester, semester.label)).run()
+    tx.delete(subjects).where(eq(subjects.semester, semester.label)).run()
+    tx.delete(semesters).where(eq(semesters.id, id)).run()
+  })
 }
 
 function isoDaysFromToday(days: number): string {

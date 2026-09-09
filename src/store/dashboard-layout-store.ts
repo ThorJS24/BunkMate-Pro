@@ -5,10 +5,8 @@ import type { Layout } from 'react-grid-layout/legacy'
 // Where the Dashboard's tiles sit, purely a view preference — ephemeral, so
 // localStorage (not the DB), same convention as notification-state-store.ts.
 // Heights are generous on purpose: the goal is that typical content (a
-// handful of subjects/exams/holidays) fits without the internal scrollbar
-// ("scrollable" tiles in dashboard.tsx) ever engaging. The ESPRO tile is
-// wide (not narrow-and-tall) specifically so its comparison table never
-// needs horizontal scroll either.
+// handful of subjects) fits without the internal scrollbar ("scrollable"
+// tiles in dashboard.tsx) ever engaging.
 // minW/minH are size floors, not just initial sizes — resolveDashboardLayout
 // below re-applies them to every saved layout on every load (not just the
 // first one), specifically so a tile can never be resized (or have been
@@ -16,16 +14,18 @@ import type { Layout } from 'react-grid-layout/legacy'
 // that's too small to show even its own header. That was the "empty box
 // still taking up space" bug — the box wasn't empty, it was just clipped to
 // nothing by overflow-hidden at a height smaller than one line of text.
+//
+// Dashboard used to also carry ESPRO comparison, today's classes, week
+// shape, upcoming exams, and upcoming holidays — all moved to their own nav
+// pages (Attendance, Today, Timetable, Exams, Calendar) since piling
+// everything onto one page just produced one long scroll instead of
+// anything actually easier to find. Dashboard now only keeps what doesn't
+// have another natural home: the overall/at-a-glance numbers.
 export const DEFAULT_DASHBOARD_LAYOUT: Layout = [
-  { i: 'overall', x: 0, y: 0, w: 3, h: 5, minW: 2, minH: 4 },
-  { i: 'below-target', x: 3, y: 0, w: 2, h: 5, minW: 2, minH: 4 },
-  { i: 'today-count', x: 5, y: 0, w: 2, h: 5, minW: 2, minH: 4 },
-  { i: 'espro', x: 7, y: 0, w: 5, h: 9, minW: 3, minH: 5 },
-  { i: 'subjects', x: 0, y: 5, w: 7, h: 14, minW: 3, minH: 6 },
-  { i: 'today-classes', x: 7, y: 9, w: 5, h: 7, minW: 2, minH: 4 },
-  { i: 'week-shape', x: 0, y: 19, w: 4, h: 7, minW: 2, minH: 4 },
-  { i: 'upcoming-exams', x: 4, y: 19, w: 4, h: 7, minW: 2, minH: 4 },
-  { i: 'upcoming-holidays', x: 8, y: 19, w: 4, h: 7, minW: 2, minH: 4 },
+  { i: 'overall', x: 0, y: 0, w: 4, h: 5, minW: 2, minH: 4 },
+  { i: 'below-target', x: 4, y: 0, w: 4, h: 5, minW: 2, minH: 4 },
+  { i: 'today-count', x: 8, y: 0, w: 4, h: 5, minW: 2, minH: 4 },
+  { i: 'subjects', x: 0, y: 5, w: 12, h: 16, minW: 3, minH: 6 },
 ]
 
 interface DashboardLayoutStore {
@@ -41,11 +41,11 @@ export const useDashboardLayoutStore = create<DashboardLayoutStore>()(
       setLayout: (layout) => set({ layout }),
       resetLayout: () => set({ layout: DEFAULT_DASHBOARD_LAYOUT }),
     }),
-    // v2: default tile sizes changed (fixing tiles that were too small for
-    // their own content, forcing an unwanted internal scrollbar) — a new key
-    // so anyone with a v1 layout already saved gets the fixed defaults
-    // instead of their stale small ones.
-    { name: 'bunkmate-dashboard-layout-v2' },
+    // v3: five tiles moved off Dashboard entirely (see the comment above
+    // DEFAULT_DASHBOARD_LAYOUT) — a new key so anyone with a v2 layout
+    // already saved doesn't keep a stale position/size for a tile that no
+    // longer exists here, and the remaining tiles get the new, wider defaults.
+    { name: 'bunkmate-dashboard-layout-v3' },
   ),
 )
 

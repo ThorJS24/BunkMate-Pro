@@ -180,6 +180,53 @@ export function aggregateOverall(bySubject: Map<number, SubjectAttendance>): Buc
   return finalizeStats(stats)
 }
 
+// CHRIST's handbook: "Students absent from classes continuously for two
+// weeks or more without written approval... shall be considered to have
+// withdrawn from the University."
+const CONTINUOUS_ABSENCE_THRESHOLD_DAYS = 14
+
+export interface ContinuousAbsenceCheck {
+  flagged: boolean
+  /** ISO date of the last explicit 'present' record, or null if there's never been one. */
+  lastPresentDate: string | null
+  /** Days since lastPresentDate (or since the earliest absence, if there's no presence at all). */
+  daysSinceLastPresent: number | null
+}
+
+/**
+ * Flags a genuine continuous-absence stretch, not just "app not used for a
+ * while" — BunkMate's own auto-present rule already treats an unmarked past
+ * class as attended (see day-attendance.ts), so a plain lack of records
+ * would never trigger a real warning here. This only fires when there's an
+ * actual explicit 'absent' record inside the gap, which is what makes it a
+ * documented absence rather than silence.
+ */
+export function detectContinuousAbsence(params: {
+  records: AttendanceRecordInput[]
+  todayIso: string
+}): ContinuousAbsenceCheck {
+  const { records, todayIso } = params
+  const presentDates = records.filter((r) => r.status === 'present').map((r) => r.date)
+  const absentDates = records.filter((r) => r.status === 'absent').map((r) => r.date)
+  if (absentDates.length === 0) return { flagged: false, lastPresentDate: null, daysSinceLastPresent: null }
+
+  const lastPresentDate = presentDates.length > 0 ? [...presentDates].sort().at(-1)! : null
+  const hasAbsentAfterLastPresent = absentDates.some((d) => d > (lastPresentDate ?? ''))
+  if (!hasAbsentAfterLastPresent) return { flagged: false, lastPresentDate, daysSinceLastPresent: null }
+
+  const gapStart = lastPresentDate ?? [...absentDates].sort()[0]
+  const dayMs = 24 * 60 * 60 * 1000
+  const daysSinceLastPresent = Math.floor(
+    (new Date(`${todayIso}T00:00:00Z`).getTime() - new Date(`${gapStart}T00:00:00Z`).getTime()) / dayMs,
+  )
+
+  return {
+    flagged: daysSinceLastPresent >= CONTINUOUS_ABSENCE_THRESHOLD_DAYS,
+    lastPresentDate,
+    daysSinceLastPresent,
+  }
+}
+
 export interface SubjectMinTargetInput {
   customMinTarget: number | null
 }

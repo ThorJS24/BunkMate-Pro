@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core'
 
 // Weekday keys used across timetable_slots and holidays scoping.
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -13,7 +13,7 @@ export type PeriodType = (typeof PERIOD_TYPES)[number]
 export const ATTENDANCE_STATUSES = ['present', 'absent'] as const
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number]
 
-export const ATTENDANCE_SOURCES = ['manual', 'timetable'] as const
+export const ATTENDANCE_SOURCES = ['manual', 'timetable', 'espro'] as const
 export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number]
 
 export const HOLIDAY_TYPES = ['public', 'university', 'working_saturday', 'custom'] as const
@@ -23,7 +23,16 @@ export type HolidayType = (typeof HOLIDAY_TYPES)[number]
 // 'ledger' is the original default look — kept as a named pack rather than
 // "no class" so switching back to it is a real, explicit choice like any
 // other pack.
-export const THEME_PACKS = ['ledger', 'ocean', 'forest', 'sunset'] as const
+export const THEME_PACKS = [
+  'ledger',
+  'ocean',
+  'forest',
+  'sunset',
+  'crest',
+  'founders',
+  'campus',
+  'convocation',
+] as const
 export type ThemePack = (typeof THEME_PACKS)[number]
 
 export const LEAVE_PLAN_STATUSES = ['planned', 'taken', 'cancelled'] as const
@@ -109,6 +118,16 @@ export const subjects = sqliteTable('subjects', {
   // excluded from SGPA/CGPA rather than treated as a 0, so an in-progress
   // semester's GPA reflects only what's actually been graded.
   gradePoint: real('grade_point'),
+  // Free-text notes (e.g. what's covered, reminders to self) and one link
+  // (syllabus, drive folder) — both optional, shown on the subject's own
+  // row/detail rather than anywhere else, so they don't need their own table.
+  notes: text('notes'),
+  link: text('link'),
+  // Faculty contact, beyond just a name: office hours as free text (hours
+  // vary too much institution-to-institution to model as structured time
+  // slots) and an email. Both optional.
+  facultyEmail: text('faculty_email'),
+  officeHours: text('office_hours'),
   createdAt: integer('created_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -173,6 +192,11 @@ export const attendanceRecords = sqliteTable(
     // At most one attendance record per subject/date/period — marking the
     // same period twice should edit the existing record, not duplicate it.
     uniqueIndex('attendance_records_subject_date_period_unique').on(table.subjectId, table.date, table.period),
+    // The unique index above is keyed subjectId-first, so it can't serve a
+    // date-range-only filter (no subjectId) — e.g. the Attendance page
+    // loading "this month, all subjects". A plain index on date alone
+    // covers that scan pattern as the table grows across semesters.
+    index('attendance_records_date_idx').on(table.date),
   ],
 )
 
@@ -263,11 +287,15 @@ export const yellowFormDisputes = sqliteTable('yellow_form_disputes', {
 // Singleton row (id = 1) holding app-wide settings.
 export const settings = sqliteTable('settings', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  // Used for the dashboard's overall attendance warning/safe-bunk count.
-  overallMinTarget: real('overall_min_target').notNull().default(75),
-  // Default per-subject target; a subject's own customMinTarget (if set)
-  // takes precedence over this. See resolveSubjectMinTarget() in the
-  // attendance engine.
+  // Aggregate attendance (across every subject combined) needed to sit the
+  // End Semester Exam — CHRIST's 2026-27 handbook prescribes 85% here,
+  // distinct from and higher than the per-course target below. Used for the
+  // dashboard's overall attendance warning/safe-bunk count.
+  overallMinTarget: real('overall_min_target').notNull().default(85),
+  // Default per-subject target — CHRIST's handbook prescribes 75% per course
+  // for Mid Semester Exam / CIA II eligibility. A subject's own
+  // customMinTarget (if set) takes precedence over this. See
+  // resolveSubjectMinTarget() in the attendance engine.
   subjectMinTarget: real('subject_min_target').notNull().default(75),
   // How many points above target still counts as "at risk" — drives the
   // amber close-to-target warning (notifications + dashboard color). 0
@@ -310,6 +338,29 @@ export const settings = sqliteTable('settings', {
   backupIntervalDays: integer('backup_interval_days').notNull().default(7),
   backupDir: text('backup_dir'),
   lastBackupAt: integer('last_backup_at', { mode: 'timestamp' }),
+  // Accessibility: 'default' | 'large' | 'larger' — adjusts the root
+  // font-size everything else is sized relative to (see .font-scale-* in
+  // index.css), not just body text.
+  fontScale: text('font_scale').notNull().default('default'),
+  // Accessibility: pushes muted text/borders further from the background
+  // and thickens the focus ring (see .high-contrast in index.css).
+  highContrast: integer('high_contrast', { mode: 'boolean' }).notNull().default(false),
+  // Opt-in: writes uncaught main-process errors to a small local log file
+  // (see electron/crash-log.ts) so a non-technical user has something worth
+  // sharing beyond "it just closed". Off by default — logging is a
+  // deliberate choice, not a silent default.
+  crashLogEnabled: integer('crash_log_enabled', { mode: 'boolean' }).notNull().default(false),
+  // Sunday-evening native notification summarizing the week (overall %,
+  // subjects below target, exams coming up) — see src/lib/weekly-digest.ts.
+  // Defaults on like exam reminders: low-frequency (once a week), so the
+  // noise cost is minimal against the value of a heads-up.
+  weeklyDigestEnabled: integer('weekly_digest_enabled', { mode: 'boolean' }).notNull().default(true),
+  // Used only when theme === 'schedule' (a 4th option alongside system/light/
+  // dark) — "HH:MM" 24h clock times; dark mode applies between start and
+  // end, wrapping past midnight when start > end (the normal case, e.g.
+  // 19:00 -> 07:00). See useTheme's schedule effect for the wrap math.
+  themeScheduleStart: text('theme_schedule_start').notNull().default('19:00'),
+  themeScheduleEnd: text('theme_schedule_end').notNull().default('07:00'),
   updatedAt: integer('updated_at', { mode: 'timestamp' })
     .notNull()
     .$defaultFn(() => new Date()),

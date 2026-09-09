@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `crash_log_enabled` integer DEFAULT false NOT NULL;

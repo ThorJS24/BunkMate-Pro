@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
@@ -24,6 +25,8 @@ import {
   enumerateScheduledPeriods,
   scheduledPeriodsForDates,
   projectRecords,
+  computeSafeBunkCount,
+  computeClassesNeededToReachTarget,
   type SubjectAttendance,
   type BucketStats,
 } from '@/lib/attendance-engine'
@@ -112,6 +115,192 @@ function buildComparisonRows(
       after: after.get(s.id)?.overall ?? empty,
     }))
     .filter((row) => row.before.total > 0 || row.after.total > 0)
+}
+
+function SafeBunkCalculatorTab({
+  subjects,
+  baselineMap,
+}: {
+  subjects: { id: number; name: string }[]
+  baselineMap: Map<number, SubjectAttendance>
+}) {
+  const [targetPercent, setTargetPercent] = useState<number>(75)
+  const [simSubjectId, setSimSubjectId] = useState<string>(subjects[0] ? String(subjects[0].id) : '')
+  const [simBunks, setSimBunks] = useState<string>('1')
+
+  const subjectStats = useMemo(() => {
+    return subjects.map((s) => {
+      const att = baselineMap.get(s.id)?.overall ?? { total: 0, attended: 0, percentage: null }
+      const safeBunks = computeSafeBunkCount(att.attended, att.total, targetPercent)
+      const classesNeeded = computeClassesNeededToReachTarget(att.attended, att.total, targetPercent)
+      return {
+        subject: s,
+        att,
+        safeBunks,
+        classesNeeded,
+      }
+    })
+  }, [subjects, baselineMap, targetPercent])
+
+  const selectedSimSubject = subjects.find((s) => String(s.id) === simSubjectId)
+  const simBaselineAtt = selectedSimSubject
+    ? baselineMap.get(selectedSimSubject.id)?.overall ?? { total: 0, attended: 0, percentage: null }
+    : { total: 0, attended: 0, percentage: null }
+
+  const simResult = useMemo(() => {
+    const numBunks = Math.max(0, Number(simBunks) || 0)
+    const newTotal = simBaselineAtt.total + numBunks
+    const newAttended = simBaselineAtt.attended
+    const newPercentage = newTotal > 0 ? (newAttended / newTotal) * 100 : null
+    const diff = (newPercentage ?? 0) - (simBaselineAtt.percentage ?? 0)
+    const dropsBelowTarget = (simBaselineAtt.percentage ?? 100) >= targetPercent && (newPercentage ?? 0) < targetPercent
+    return {
+      newTotal,
+      newAttended,
+      newPercentage,
+      diff,
+      dropsBelowTarget,
+    }
+  }, [simBaselineAtt, simBunks, targetPercent])
+
+  return (
+    <div className="space-y-6 pt-4">
+      {/* Target Percentage Control */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border p-4 bg-muted/30">
+        <div>
+          <h3 className="font-semibold text-sm">Target Threshold</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Adjust target threshold to calculate safe bunks and attendance recovery count.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {[75, 80, 85].map((pct) => (
+            <Button
+              key={pct}
+              type="button"
+              variant={targetPercent === pct ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTargetPercent(pct)}
+              className="text-xs h-8"
+            >
+              {pct}% Target
+            </Button>
+          ))}
+          <Input
+            type="number"
+            min={50}
+            max={100}
+            value={targetPercent}
+            onChange={(e) => setTargetPercent(Math.min(100, Math.max(1, Number(e.target.value) || 75)))}
+            className="w-20 h-8 text-xs font-semibold"
+          />
+        </div>
+      </div>
+
+      {/* Instant Bunk Simulator Widget */}
+      <Card className="p-4 border bg-card/60 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Instant Bunk Impact Predictor</h3>
+          <Badge variant="outline" className="text-[11px] font-normal">What-If Predictor</Badge>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="sim-subject" className="text-xs text-muted-foreground">Select Subject</Label>
+            <Select value={simSubjectId} onValueChange={setSimSubjectId}>
+              <SelectTrigger id="sim-subject" className="h-9 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {subjects.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sim-bunks" className="text-xs text-muted-foreground">Simulate Missed Classes (Bunks)</Label>
+            <Input
+              id="sim-bunks"
+              type="number"
+              min={1}
+              max={50}
+              value={simBunks}
+              onChange={(e) => setSimBunks(e.target.value)}
+              className="h-9 text-xs"
+            />
+          </div>
+
+          <div className="rounded-lg border p-2.5 bg-muted/20 flex flex-col justify-center">
+            <span className="text-[11px] text-muted-foreground font-medium">Projected Attendance</span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-base font-bold tabular-nums">
+                {simResult.newPercentage !== null ? `${simResult.newPercentage.toFixed(1)}%` : '—'}
+              </span>
+              <span className={cn('text-xs font-medium', simResult.diff < 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                ({simResult.diff.toFixed(1)}pp)
+              </span>
+            </div>
+            {simResult.dropsBelowTarget && (
+              <span className="text-[10px] text-rose-500 font-semibold mt-0.5">
+                ⚠️ Drops below {targetPercent}% target!
+              </span>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* Per-Subject Safe Bunks & Recovery Cards */}
+      <div>
+        <h3 className="font-semibold text-sm mb-3">Subject Allowance & Recovery Status</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {subjectStats.map(({ subject, att, safeBunks, classesNeeded }) => {
+            const isAbove = (att.percentage ?? 100) >= targetPercent
+            const isAtRisk = (att.percentage ?? 100) >= targetPercent && safeBunks <= 1
+
+            return (
+              <Card key={subject.id} className="p-3.5 bg-card/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-xs truncate max-w-[170px]" title={subject.name}>{subject.name}</h4>
+                  <Badge
+                    variant={isAbove ? (isAtRisk ? 'warning' : 'success') : 'destructive'}
+                    className="font-semibold text-xs px-2 py-0.5"
+                  >
+                    {att.percentage !== null ? `${att.percentage.toFixed(1)}%` : 'No Classes'}
+                  </Badge>
+                </div>
+
+                <div className="text-[11px] text-muted-foreground flex justify-between">
+                  <span>Attended: {att.attended}/{att.total}</span>
+                  <span>Target: {targetPercent}%</span>
+                </div>
+
+                <div className="pt-2 border-t text-xs">
+                  {isAbove ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-[11px]">Safe to bunk:</span>
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400 font-semibold text-xs">
+                        {safeBunks === Infinity ? 'Unlimited' : `${safeBunks} class${safeBunks === 1 ? '' : 'es'}`}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-[11px]">Must attend next:</span>
+                      <Badge variant="destructive" className="font-semibold text-xs">
+                        {classesNeeded} class{classesNeeded === 1 ? '' : 'es'}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function PlannerPage() {
@@ -233,22 +422,29 @@ export function PlannerPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Simulator &amp; Leave Planner</h1>
+      <p className="text-sm text-muted-foreground">
+        Try out "what if" scenarios below — nothing is saved or changes your real attendance unless you explicitly
+        save a leave plan.
+      </p>
 
       <Card>
         <CardHeader>
           <CardTitle>Simulator</CardTitle>
-          <CardDescription>
-            Non-destructive projections: nothing here is saved until you explicitly save a leave plan.
-          </CardDescription>
+          <CardDescription>Just a preview — pick a scenario below to see what it would do to your attendance.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="bunk">
+          <Tabs defaultValue="safebunk">
             <TabsList>
+              <TabsTrigger value="safebunk">🎯 Safe Bunk &amp; Calculator</TabsTrigger>
               <TabsTrigger value="bunk">Bunk tomorrow</TabsTrigger>
               <TabsTrigger value="attend">Attend everything</TabsTrigger>
               <TabsTrigger value="leave">Leave for N days</TabsTrigger>
               <TabsTrigger value="form">Yellow form</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="safebunk">
+              <SafeBunkCalculatorTab subjects={subjects} baselineMap={baseline} />
+            </TabsContent>
 
             <TabsContent value="bunk" className="space-y-4 pt-4">
               <div className="flex items-end gap-3">

@@ -15,12 +15,28 @@ import {
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Card, CardContent } from '@/components/ui/card'
+import { CollapsibleSection } from '@/components/collapsible-section'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useYellowFormsStore } from '@/store/yellow-forms-store'
 import { useToastStore } from '@/store/toast-store'
+import { useAttendanceStore } from '@/store/attendance-store'
+import { useTimetableStore } from '@/store/timetable-store'
+import { useHolidaysStore } from '@/store/holidays-store'
+import { usePeriodTypeRulesStore } from '@/store/period-type-rules-store'
+import { useSettingsStore } from '@/store/settings-store'
 import { YellowFormDisputeBadge } from '@/components/yellow-form-dispute'
 import type { YellowForm } from '../../electron/db/repositories/yellow-forms'
-import { todayIso } from '@/lib/date-utils'
+import { todayIso, groupByMonth } from '@/lib/date-utils'
+import { computeAttendance, aggregateOverall, jsDayToWeekday } from '@/lib/attendance-engine'
+import { cn } from '@/lib/utils'
+
+// Per CHRIST's handbook (End Semester Exam eligibility section): approved
+// leave applications only count toward the 85% aggregate ESE requirement
+// when *real* (unadjusted) aggregate attendance already exceeds 75% on the
+// last instruction day. Below that floor, a yellow form can't fix ESE
+// eligibility by itself — the underlying shortage has to be addressed by
+// actually attending more classes.
+const ESE_LEAVE_ELIGIBILITY_FLOOR = 75
 
 interface FormState {
   subjectId: string
@@ -53,6 +69,11 @@ export function YellowFormsTab() {
   const { subjects, load: loadSubjects } = useSubjectsStore()
   const { forms, load, create, update, setStatus, remove } = useYellowFormsStore()
   const pushToast = useToastStore((s) => s.push)
+  const currentSemester = useSettingsStore((s) => s.currentSemester)
+  const { records, load: loadRecords } = useAttendanceStore()
+  const { slots, load: loadSlots } = useTimetableStore()
+  const { holidays, load: loadHolidays } = useHolidaysStore()
+  const { rules, load: loadRules } = usePeriodTypeRulesStore()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<YellowForm | null>(null)
@@ -63,15 +84,37 @@ export function YellowFormsTab() {
   useEffect(() => {
     loadSubjects({ includeArchived: false })
     load()
-  }, [loadSubjects, load])
+    loadRecords()
+    loadHolidays()
+    loadRules()
+  }, [loadSubjects, load, loadRecords, loadHolidays, loadRules])
+
+  useEffect(() => {
+    if (currentSemester) loadSlots(currentSemester)
+  }, [loadSlots, currentSemester])
 
   const subjectsById = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects])
 
-  // Grouped by date (newest first) so you can cross-verify a whole day's forms
-  // against the portal at a glance; within a day, ordered by period.
-  const groups = useMemo(() => {
+  // "Real" attendance ignoring any yellow-form adjustment — computeAttendance
+  // treats an approved form as attended, so feeding it an empty yellowForms
+  // list is what recovers the unadjusted number. Scoped to the current
+  // semester's subjects, matching how the rest of the app scopes attendance.
+  const realAggregatePercentage = useMemo(() => {
+    if (!currentSemester) return null
+    const semesterSubjectIds = new Set(subjects.filter((s) => s.semester === currentSemester).map((s) => s.id))
+    const semesterRecords = records.filter((r) => semesterSubjectIds.has(r.subjectId))
+    const bySubject = computeAttendance({ records: semesterRecords, slots, holidays, yellowForms: [], rules })
+    return aggregateOverall(bySubject).percentage
+  }, [currentSemester, subjects, records, slots, holidays, rules])
+
+  // Grouped by month (collapsed except the latest — this list grows for as
+  // long as the app is used, same reasoning as the Attendance page), then by
+  // date within a month (newest first) so a whole day's forms can be
+  // cross-verified against the portal at a glance; within a day, by period.
+  const monthGroups = useMemo(() => groupByMonth(forms, (f) => f.date), [forms])
+  function dateGroupsFor(items: YellowForm[]) {
     const byDate = new Map<string, YellowForm[]>()
-    for (const f of forms) {
+    for (const f of items) {
       const list = byDate.get(f.date)
       if (list) list.push(f)
       else byDate.set(f.date, [f])
@@ -82,7 +125,7 @@ export function YellowFormsTab() {
         date,
         forms: [...list].sort((a, b) => (a.period ?? 0) - (b.period ?? 0)),
       }))
-  }, [forms])
+  }
 
   function openCreate() {
     setEditing(null)
@@ -122,9 +165,47 @@ export function YellowFormsTab() {
 
   async function handleDelete() {
     if (!deleteTarget) return
-    await remove(deleteTarget.id)
+    const target = deleteTarget
+    await remove(target.id)
     setDeleteTarget(null)
-    pushToast({ title: 'Yellow form deleted' })
+    const { id: _id, createdAt: _createdAt, status: _status, disputeStatus: _disputeStatus, ...rest } = target
+    pushToast({ title: 'Yellow form deleted', action: { label: 'Undo', onClick: () => create(rest) } }, 8000)
+  }
+
+  async function handleBatchStatus(formsInGroup: YellowForm[], targetStatus: 'approved' | 'rejected') {
+    const pendingForms = formsInGroup.filter((f) => f.status === 'pending')
+    if (pendingForms.length === 0) return
+    for (const f of pendingForms) {
+      await setStatus(f.id, targetStatus)
+    }
+    pushToast({
+      title: `${targetStatus === 'approved' ? 'Approved' : 'Rejected'} ${pendingForms.length} yellow form${pendingForms.length === 1 ? '' : 's'} for this date`,
+    })
+  }
+
+  function getPeriodCoverage(date: string, formsInGroup: YellowForm[]) {
+    const weekday = jsDayToWeekday(date)
+    if (!weekday) return null
+    const isHoliday = holidays.some((h) => h.date === date && h.type !== 'working_saturday')
+    if (isHoliday) return null
+    const daySlots = slots.filter((s) => s.day === weekday && s.type !== 'lunch')
+    const totalPeriods = daySlots.length
+    if (totalPeriods === 0) return null
+
+    const coveredPeriods = new Set(
+      formsInGroup
+        .map((f) => f.period)
+        .filter((p): p is number => p !== null && p !== undefined),
+    ).size
+
+    const hasWholeDayForm = formsInGroup.some((f) => f.period === null || f.period === undefined)
+    const effectiveCovered = hasWholeDayForm ? totalPeriods : Math.min(coveredPeriods, totalPeriods)
+
+    return {
+      coveredPeriods: effectiveCovered,
+      totalPeriods,
+      isFullDay: effectiveCovered >= totalPeriods,
+    }
   }
 
   return (
@@ -138,8 +219,35 @@ export function YellowFormsTab() {
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
+      {realAggregatePercentage !== null && (
+        <div
+          className={cn(
+            'rounded-md border p-3 text-sm',
+            realAggregatePercentage >= ESE_LEAVE_ELIGIBILITY_FLOOR
+              ? 'border-success/50 bg-success/10'
+              : 'border-destructive/50 bg-destructive/10',
+          )}
+        >
+          Your real aggregate attendance, before any yellow form adjustment, is{' '}
+          <span className="font-medium">{realAggregatePercentage.toFixed(1)}%</span>.{' '}
+          {realAggregatePercentage >= ESE_LEAVE_ELIGIBILITY_FLOOR
+            ? `That's above the ${ESE_LEAVE_ELIGIBILITY_FLOOR}% floor, so approved leave can still count toward the 85% End Semester Exam requirement.`
+            : `That's below the ${ESE_LEAVE_ELIGIBILITY_FLOOR}% floor — per the handbook, leave applications only count toward the 85% End Semester Exam requirement above this floor, so approving forms alone won't fix eligibility here. Attending more classes will.`}
+        </div>
+      )}
+
+      {monthGroups.length === 0 && (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">No yellow forms on record.</CardContent>
+        </Card>
+      )}
+      {monthGroups.map((month, i) => (
+        <CollapsibleSection
+          key={month.monthKey}
+          title={month.monthLabel}
+          summary={`${month.items.length} form${month.items.length === 1 ? '' : 's'}`}
+          defaultOpen={i === 0}
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -152,76 +260,114 @@ export function YellowFormsTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groups.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No yellow forms on record.
-                  </TableCell>
-                </TableRow>
-              )}
-              {groups.map((group) => (
-                <Fragment key={group.date}>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableCell colSpan={6} className="py-2 font-medium">
-                      {formatDateLabel(group.date)}
-                      <Badge variant="secondary" className="ml-2 font-normal">
-                        {group.forms.length} form{group.forms.length === 1 ? '' : 's'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
+              {dateGroupsFor(month.items).map((group) => {
+                const coverage = getPeriodCoverage(group.date, group.forms)
+                const pendingCount = group.forms.filter((f) => f.status === 'pending').length
+
+                return (
+                  <Fragment key={group.date}>
+                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableCell colSpan={6} className="py-2.5 font-medium">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">{formatDateLabel(group.date)}</span>
+                            <Badge variant="secondary" className="font-normal">
+                              {group.forms.length} form{group.forms.length === 1 ? '' : 's'}
+                            </Badge>
+                            {coverage && (
+                              <Badge
+                                variant={coverage.isFullDay ? 'success' : 'outline'}
+                                className={cn('font-medium', coverage.isFullDay ? 'bg-success/15 text-success border-success/30' : '')}
+                                title={`${coverage.coveredPeriods} out of ${coverage.totalPeriods} scheduled class periods covered by Yellow Forms on this date`}
+                              >
+                                {coverage.isFullDay ? 'Full Day' : 'Partial Day'} ({coverage.coveredPeriods}/{coverage.totalPeriods} periods)
+                              </Badge>
+                            )}
+                          </div>
+
+                          {pendingCount > 0 && (
+                            <div className="flex items-center gap-1.5 text-xs font-normal">
+                              <span className="text-muted-foreground mr-0.5">Day Batch:</span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 border-success/40 bg-success/10 text-success hover:bg-success/20 hover:text-success text-xs font-medium px-2.5"
+                                onClick={() => handleBatchStatus(group.forms, 'approved')}
+                                title={`Approve all ${pendingCount} pending forms for ${formatDateLabel(group.date)}`}
+                              >
+                                <Check className="mr-1 size-3.5" /> Approve day ({pendingCount})
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive text-xs font-medium px-2.5"
+                                onClick={() => handleBatchStatus(group.forms, 'rejected')}
+                                title={`Reject all ${pendingCount} pending forms for ${formatDateLabel(group.date)}`}
+                              >
+                                <X className="mr-1 size-3.5" /> Reject day ({pendingCount})
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   {group.forms.map((f) => (
-                <TableRow key={f.id}>
-                  <TableCell>{subjectsById.get(f.subjectId)?.name ?? `#${f.subjectId}`}</TableCell>
-                  <TableCell>{f.period ?? 'whole day'}</TableCell>
-                  <TableCell className="text-muted-foreground">{f.reason ?? '—'}</TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {f.disputeStatus === 'none' && f.status === 'pending' ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <YellowFormDisputeBadge form={f} subjectName={subjectsById.get(f.subjectId)?.name ?? `#${f.subjectId}`} />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {f.status === 'pending' && (
-                        <>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => setStatus(f.id, 'approved')}
-                            aria-label="Approve"
-                          >
-                            <Check className="text-success" />
+                    <TableRow key={f.id}>
+                      <TableCell>{subjectsById.get(f.subjectId)?.name ?? `#${f.subjectId}`}</TableCell>
+                      <TableCell>{f.period ?? 'whole day'}</TableCell>
+                      <TableCell className="text-muted-foreground">{f.reason ?? '—'}</TableCell>
+                      <TableCell>
+                        <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {f.disputeStatus === 'none' && f.status === 'pending' ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <YellowFormDisputeBadge
+                            form={f}
+                            subjectName={subjectsById.get(f.subjectId)?.name ?? `#${f.subjectId}`}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {f.status === 'pending' && (
+                            <>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setStatus(f.id, 'approved')}
+                                aria-label="Approve"
+                              >
+                                <Check className="text-success" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setStatus(f.id, 'rejected')}
+                                aria-label="Reject"
+                              >
+                                <X className="text-destructive" />
+                              </Button>
+                            </>
+                          )}
+                          <Button size="icon" variant="ghost" onClick={() => openEdit(f)} aria-label="Edit">
+                            <Pencil />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => setStatus(f.id, 'rejected')}
-                            aria-label="Reject"
-                          >
-                            <X className="text-destructive" />
+                          <Button size="icon" variant="ghost" onClick={() => setDeleteTarget(f)} aria-label="Delete">
+                            <Trash2 />
                           </Button>
-                        </>
-                      )}
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(f)} aria-label="Edit">
-                        <Pencil />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => setDeleteTarget(f)} aria-label="Delete">
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ))}
                 </Fragment>
-              ))}
-            </TableBody>
+              )
+            })}
+          </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </CollapsibleSection>
+      ))}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

@@ -15,6 +15,8 @@ import {
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Card, CardContent } from '@/components/ui/card'
+import { CollapsibleSection } from '@/components/collapsible-section'
+import { IcsUrlImportButton } from '@/components/ics-url-import-button'
 import { useHolidaysStore } from '@/store/holidays-store'
 import { useToastStore } from '@/store/toast-store'
 import type { Holiday } from '../../electron/db/repositories/holidays'
@@ -68,7 +70,10 @@ export function HolidaysTab() {
   const [importChecked, setImportChecked] = useState<Record<string, boolean>>({})
   const [importing, setImporting] = useState(false)
   const [importingPdf, setImportingPdf] = useState(false)
-  const [groupMode, setGroupMode] = useState<GroupMode>('none')
+  // Defaults to grouped-by-year (collapsed except the latest) rather than a
+  // flat table: holidays accumulate ~15-20/year, so a multi-year install
+  // would otherwise render an ever-growing unbounded list by default.
+  const [groupMode, setGroupMode] = useState<GroupMode>('year')
 
   useEffect(() => {
     load()
@@ -105,6 +110,12 @@ export function HolidaysTab() {
     const events = parseIcs(file.content)
     const existingDates = new Set(holidays.map((h) => h.date))
     openImportReview(file.name, icsEventsToHolidayDrafts(events, existingDates))
+  }
+
+  function handleImportIcsText(text: string, source: string) {
+    const events = parseIcs(text)
+    const existingDates = new Set(holidays.map((h) => h.date))
+    openImportReview(source, icsEventsToHolidayDrafts(events, existingDates))
   }
 
   async function handleImportPdfClick() {
@@ -197,6 +208,7 @@ export function HolidaysTab() {
           <Button variant="outline" onClick={handleImportClick} title="Import holidays from an academic calendar (.ics)">
             <FileUp /> Import .ics
           </Button>
+          <IcsUrlImportButton onIcsText={handleImportIcsText} />
           <Button
             variant="outline"
             onClick={handleImportPdfClick}
@@ -259,35 +271,35 @@ export function HolidaysTab() {
               <CardContent className="py-8 text-center text-muted-foreground">No holidays on record.</CardContent>
             </Card>
           )}
-          {groups.map(([key, items]) => (
-            <Card key={key}>
-              <CardContent className="p-0">
-                <div className="border-b px-4 py-2 text-sm font-medium capitalize">
-                  {key} <span className="text-muted-foreground">({items.length})</span>
-                </div>
-                <Table>
-                  <TableBody>
-                    {items.map((h) => (
-                      <TableRow key={h.id}>
-                        <TableCell className="w-28">{h.date}</TableCell>
-                        <TableCell className="w-32 capitalize">{h.type.replace('_', ' ')}</TableCell>
-                        <TableCell>{h.label ?? '—'}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon" variant="ghost" onClick={() => openEdit(h)} aria-label="Edit">
-                              <Pencil />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => setDeleteTarget(h)} aria-label="Delete">
-                              <Trash2 />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+          {groups.map(([key, items], i) => (
+            <CollapsibleSection
+              key={key}
+              title={<span className="capitalize">{key}</span>}
+              summary={`${items.length} holiday${items.length === 1 ? '' : 's'}`}
+              defaultOpen={i === groups.length - 1}
+            >
+              <Table>
+                <TableBody>
+                  {items.map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell className="w-28">{h.date}</TableCell>
+                      <TableCell className="w-32 capitalize">{h.type.replace('_', ' ')}</TableCell>
+                      <TableCell>{h.label ?? '—'}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button size="icon" variant="ghost" onClick={() => openEdit(h)} aria-label="Edit">
+                            <Pencil />
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => setDeleteTarget(h)} aria-label="Delete">
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CollapsibleSection>
           ))}
         </div>
       )}

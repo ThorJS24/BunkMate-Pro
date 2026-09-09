@@ -19,6 +19,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Card, CardContent } from '@/components/ui/card'
 import { useSemestersStore } from '@/store/semesters-store'
 import { useToastStore } from '@/store/toast-store'
+import { friendlyError } from '@/lib/friendly-error'
 import type {
   Semester,
   NewSemester,
@@ -53,7 +54,8 @@ function emptyForm(nextNumber: number): SemesterFormState {
 }
 
 export function SemestersPage() {
-  const { semesters, loading, load, create, createWithRollover, update, setArchived, remove } = useSemestersStore()
+  const { semesters, loading, load, create, createWithRollover, update, setArchived, remove, removeCascade } =
+    useSemestersStore()
   const pushToast = useToastStore((s) => s.push)
 
   const [showArchived, setShowArchived] = useState(false)
@@ -67,6 +69,8 @@ export function SemestersPage() {
   const [deleteTarget, setDeleteTarget] = useState<Semester | null>(null)
   const [dependents, setDependents] = useState<SemesterDependents | null>(null)
   const [checkingDependents, setCheckingDependents] = useState(false)
+  const [forceDeleteText, setForceDeleteText] = useState('')
+  const [forceDeleting, setForceDeleting] = useState(false)
 
   useEffect(() => {
     load()
@@ -145,10 +149,8 @@ export function SemestersPage() {
       }
       setDialogOpen(false)
     } catch (error) {
-      pushToast({
-        title: 'Could not save semester',
-        description: error instanceof Error ? error.message : String(error),
-      })
+      const fe = friendlyError(error, 'Could not save semester')
+      pushToast({ title: 'Could not save semester', description: fe.message, detail: fe.detail })
     } finally {
       setSaving(false)
     }
@@ -167,6 +169,7 @@ export function SemestersPage() {
   async function openDeleteDialog(semester: Semester) {
     setDeleteTarget(semester)
     setDependents(null)
+    setForceDeleteText('')
     setCheckingDependents(true)
     try {
       const result = await window.bunkmate.semesters.getDependents(semester.label)
@@ -184,10 +187,23 @@ export function SemestersPage() {
       setDeleteTarget(null)
       pushToast({ title: 'Semester deleted', description: target.label })
     } catch (error) {
-      pushToast({
-        title: 'Could not delete semester',
-        description: error instanceof Error ? error.message : String(error),
-      })
+      const fe = friendlyError(error, 'Could not delete semester')
+      pushToast({ title: 'Could not delete semester', description: fe.message, detail: fe.detail })
+    }
+  }
+
+  async function handleForceDelete() {
+    if (!deleteTarget || forceDeleteText !== deleteTarget.label) return
+    setForceDeleting(true)
+    try {
+      await removeCascade(deleteTarget.id)
+      pushToast({ title: 'Semester and all its data deleted', description: deleteTarget.label })
+      setDeleteTarget(null)
+    } catch (error) {
+      const fe = friendlyError(error, 'Could not delete semester')
+      pushToast({ title: 'Could not delete semester', description: fe.message, detail: fe.detail })
+    } finally {
+      setForceDeleting(false)
     }
   }
 
@@ -393,7 +409,7 @@ export function SemestersPage() {
 
             {!editing && semesters.length > 0 && (
               <div className="space-y-2 rounded-md border p-3">
-                <Label htmlFor="rollover-from">Copy structure from (optional)</Label>
+                <Label htmlFor="rollover-from">Copy subjects &amp; timetable from (optional)</Label>
                 <Select value={rolloverFrom || 'none'} onValueChange={(v) => setRolloverFrom(v === 'none' ? '' : v)}>
                   <SelectTrigger id="rollover-from">
                     <SelectValue />
@@ -413,9 +429,10 @@ export function SemestersPage() {
                 {rolloverPreview && (
                   <div className="text-xs text-muted-foreground">
                     <p>
-                      Copies <b>{rolloverPreview.subjects.length}</b> subject(s) as fresh rows and{' '}
-                      <b>{rolloverPreview.slotCount}</b> timetable slot(s). Attendance, holidays, yellow forms, and
-                      exams are <b>not</b> copied. This semester starts with a clean slate.
+                      Adds <b>{rolloverPreview.subjects.length}</b> subject(s) and{' '}
+                      <b>{rolloverPreview.slotCount}</b> timetable slot(s) to get you started. Your attendance,
+                      holidays, yellow forms, and exams are <b>not</b> copied — this new semester starts with a
+                      clean attendance record.
                     </p>
                     {rolloverPreview.subjects.length > 0 && (
                       <p className="mt-1 truncate">{rolloverPreview.subjects.map((s) => s.name).join(', ')}</p>
@@ -445,10 +462,38 @@ export function SemestersPage() {
               {checkingDependents
                 ? 'Checking for subjects and timetable slots that reference this semester…'
                 : blockDelete
-                  ? `This semester can't be deleted: ${dependents?.subjects ?? 0} subject(s) and ${dependents?.timetableSlots ?? 0} timetable slot(s) still reference it. Reassign or delete those first.`
+                  ? `This semester can't be quick-deleted: ${dependents?.subjects ?? 0} subject(s) and ${dependents?.timetableSlots ?? 0} timetable slot(s) still reference it.`
                   : 'This permanently deletes the semester. This cannot be undone.'}
             </DialogDescription>
           </DialogHeader>
+
+          {!checkingDependents && blockDelete && deleteTarget && (
+            <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+              <p className="text-sm font-medium">Delete it anyway, with everything in it</p>
+              <p className="text-sm text-muted-foreground">
+                This also deletes its {dependents?.subjects ?? 0} subject(s), {dependents?.timetableSlots ?? 0}{' '}
+                timetable slot(s), and every exam and attendance record tied to them. There's no undo — type the
+                semester's label,{' '}
+                <span className="font-mono font-medium text-foreground">{deleteTarget.label}</span>, to confirm.
+              </p>
+              <Input
+                value={forceDeleteText}
+                onChange={(e) => setForceDeleteText(e.target.value)}
+                placeholder={deleteTarget.label}
+                className="font-mono"
+              />
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                disabled={forceDeleting || forceDeleteText !== deleteTarget.label}
+                onClick={handleForceDelete}
+              >
+                <Trash2 /> Delete semester and all its data
+              </Button>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Cancel

@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
  * nothing once all steps are done, so it self-dismisses without a persisted
  * "dismissed" flag — the completion state IS the dismissal.
  */
-export function OnboardingChecklist() {
+export function OnboardingChecklist({ alwaysVisible = false }: { alwaysVisible?: boolean } = {}) {
   const currentSemester = useSettingsStore((s) => s.currentSemester)
   const semesters = useSemestersStore((s) => s.semesters)
   const loadSemesters = useSemestersStore((s) => s.load)
@@ -47,7 +47,7 @@ export function OnboardingChecklist() {
   }, [semesters, subjects, currentSemester, slots, activeSemester])
 
   const allDone = steps.every((s) => s.done)
-  if (allDone) return null
+  if (allDone && !alwaysVisible) return null
 
   const nextIndex = steps.findIndex((s) => !s.done)
 
@@ -56,7 +56,9 @@ export function OnboardingChecklist() {
       <CardHeader>
         <CardTitle>Get set up</CardTitle>
         <CardDescription>
-          A few steps to get BunkMate working for you ({steps.filter((s) => s.done).length}/{steps.length} done).
+          {allDone
+            ? "You're all set up — every step below is done."
+            : `A few steps to get BunkMate working for you (${steps.filter((s) => s.done).length}/${steps.length} done).`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1">

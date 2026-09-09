@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FolderOpen, Save, Upload, Trash2, KeyRound, AlertTriangle } from 'lucide-react'
+import { FolderOpen, Save, Upload, Trash2, KeyRound, AlertTriangle, PictureInPicture2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,6 +17,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { EsproDisclosure, EsproAboutDialog } from '@/components/espro-disclosure'
+import { CollapsibleSection } from '@/components/collapsible-section'
+import { HelpHint } from '@/components/help-hint'
+import { friendlyError } from '@/lib/friendly-error'
 import { useSettingsStore } from '@/store/settings-store'
 import { useSemestersStore } from '@/store/semesters-store'
 import { useToastStore } from '@/store/toast-store'
@@ -31,6 +34,10 @@ const THEME_PACK_INFO: Record<ThemePack, { label: string; swatch: string }> = {
   ocean: { label: 'Ocean', swatch: 'oklch(0.34 0.08 230)' },
   forest: { label: 'Forest', swatch: 'oklch(0.34 0.08 150)' },
   sunset: { label: 'Sunset', swatch: 'oklch(0.4 0.12 40)' },
+  crest: { label: 'Crest', swatch: 'oklch(0.6 0.15 65)' },
+  founders: { label: 'Founders', swatch: 'oklch(0.22 0.045 255)' },
+  campus: { label: 'Campus', swatch: 'oklch(0.42 0.11 250)' },
+  convocation: { label: 'Convocation', swatch: 'oklch(0.22 0.045 255)' },
 }
 
 export function SettingsPage() {
@@ -41,13 +48,20 @@ export function SettingsPage() {
     density,
     themePack,
     accentColor,
+    fontScale,
+    highContrast,
+    crashLogEnabled,
     launchView,
     atRiskMarginPp,
     mutedNotificationCategories,
     classReminders,
     examReminders,
+    weeklyDigestEnabled,
+    themeScheduleStart,
+    themeScheduleEnd,
     classReminderLeadMinutes,
     currentSemester,
+    setCurrentSemester,
     backupIntervalDays,
     backupDir,
     lastBackupAt,
@@ -58,10 +72,16 @@ export function SettingsPage() {
     setDensity,
     setThemePack,
     setAccentColor,
+    setFontScale,
+    setHighContrast,
+    setCrashLogEnabled,
     setLaunchView,
     setMutedNotificationCategories,
     setClassReminders,
     setExamReminders,
+    setWeeklyDigestEnabled,
+    setThemeScheduleStart,
+    setThemeScheduleEnd,
     setClassReminderLeadMinutes,
     setBackupIntervalDays,
     setBackupDir,
@@ -88,6 +108,9 @@ export function SettingsPage() {
   const [accentColorInput, setAccentColorInput] = useState(accentColor ?? '')
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
+  const [clearDataOpen, setClearDataOpen] = useState(false)
+  const [clearDataText, setClearDataText] = useState('')
+  const [clearingData, setClearingData] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
   // ESPRO sync credential state. The password lives only in this component's
@@ -229,8 +252,29 @@ export function SettingsPage() {
       const didRestore = await window.bunkmate.backup.restore()
       if (!didRestore) setRestoring(false)
       // On success the app relaunches immediately; nothing left to do here.
-    } catch {
+    } catch (error) {
+      // Previously swallowed silently — a failed restore (bad file, locked
+      // file, disk error) looked identical to "nothing happened" with no
+      // way to tell what went wrong.
+      const fe = friendlyError(error, 'Could not restore from that backup')
+      pushToast({ title: 'Could not restore from that backup', description: fe.message, detail: fe.detail })
       setRestoring(false)
+    }
+  }
+
+  async function handleClearAllData() {
+    if (clearDataText !== 'DELETE') return
+    setClearingData(true)
+    try {
+      await window.bunkmate.dangerZone.clearAllData()
+      // Every store in the app is now stale at once — a reload is simpler
+      // and safer than teaching each one to reset itself, same reasoning as
+      // the sample-data seed in the setup wizard.
+      window.location.reload()
+    } catch (error) {
+      const fe = friendlyError(error, 'Could not clear data')
+      pushToast({ title: 'Could not clear data', description: fe.message, detail: fe.detail })
+      setClearingData(false)
     }
   }
 
@@ -242,13 +286,14 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Attendance</CardTitle>
           <CardDescription>
-            Overall applies to the dashboard's total attendance; the subject default applies to each subject
-            unless it has its own override.
+            CHRIST's handbook sets two different numbers: 75% in each individual subject to sit that subject's Mid
+            Semester Exam, and a higher 85% aggregate across all subjects combined to sit the End Semester Exam —
+            falling below 85% aggregate is what leads to detention. These two targets track both separately.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
           <div className="space-y-2">
-            <Label htmlFor="overall-min-target">Overall minimum %</Label>
+            <Label htmlFor="overall-min-target">Aggregate target, all subjects (%)</Label>
             <Input
               id="overall-min-target"
               type="number"
@@ -263,9 +308,10 @@ export function SettingsPage() {
                 setOverallMinTarget(clamped)
               }}
             />
+            <p className="text-xs text-muted-foreground">85% is the University norm — below this, you risk detention.</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="subject-min-target">Default subject minimum %</Label>
+            <Label htmlFor="subject-min-target">Default per-subject target (%)</Label>
             <Input
               id="subject-min-target"
               type="number"
@@ -280,9 +326,10 @@ export function SettingsPage() {
                 setSubjectMinTarget(clamped)
               }}
             />
+            <p className="text-xs text-muted-foreground">75% is required per course to sit that Mid Semester Exam.</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="at-risk-margin">At-risk margin (pts)</Label>
+            <Label htmlFor="at-risk-margin">"Getting close" warning range (%)</Label>
             <Input
               id="at-risk-margin"
               type="number"
@@ -297,23 +344,69 @@ export function SettingsPage() {
                 setAtRiskMarginPp(clamped)
               }}
             />
-            <p className="text-xs text-muted-foreground">Warn when within this many points of target. 0 turns it off.</p>
+            <p className="text-xs text-muted-foreground">
+              Show an amber warning when you're within this many percentage points of your target — e.g. with a 75%
+              target and a 5 here, 76–79% shows amber instead of green. Set to 0 to turn this off.
+            </p>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Semesters</CardTitle>
+          <CardTitle>Semesters & Active Term</CardTitle>
           <CardDescription>
-            Add, edit, and switch between semesters (including period count and lunch position) from the{' '}
-            <Link to="/semesters" className="underline">
+            Choose your active current semester or manage semester terms, period counts, and rollover structure on the{' '}
+            <Link to="/semesters" className="underline font-medium">
               Semesters
             </Link>{' '}
-            page. The semester shown across Timetable, Subjects, Dashboard, and Analytics is picked from the
-            switcher on those pages.
+            page.
           </CardDescription>
         </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="active-semester-select">Active Semester</Label>
+            <Select value={currentSemester} onValueChange={setCurrentSemester}>
+              <SelectTrigger id="active-semester-select" className="w-48">
+                <SelectValue placeholder="Select active semester" />
+              </SelectTrigger>
+              <SelectContent>
+                {semesters.map((s) => (
+                  <SelectItem key={s.id} value={s.label}>
+                    {s.label}
+                    {s.isActive ? ' (active)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PictureInPicture2 className="size-5 text-primary" /> Desktop Companion & Mini Window
+          </CardTitle>
+          <CardDescription>
+            Always-on-top compact window for quick period logging and glanceable attendance metrics.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                await window.bunkmate.miniWindow.toggle()
+                pushToast({ title: 'Toggled Mini Window' })
+              } catch {
+                pushToast({ title: 'Mini Window active in Desktop environment' })
+              }
+            }}
+          >
+            <PictureInPicture2 className="size-4 mr-2" /> Toggle Mini Window Companion
+          </Button>
+        </CardContent>
       </Card>
 
       <Card>
@@ -331,11 +424,39 @@ export function SettingsPage() {
                 <SelectItem value="system">System</SelectItem>
                 <SelectItem value="light">Light</SelectItem>
                 <SelectItem value="dark">Dark</SelectItem>
+                <SelectItem value="schedule">Scheduled</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {theme === 'schedule' && (
+            <div className="flex items-end gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="theme-schedule-start">Dark from</Label>
+                <Input
+                  id="theme-schedule-start"
+                  type="time"
+                  className="w-28"
+                  value={themeScheduleStart}
+                  onChange={(e) => setThemeScheduleStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="theme-schedule-end">Light from</Label>
+                <Input
+                  id="theme-schedule-end"
+                  type="time"
+                  className="w-28"
+                  value={themeScheduleEnd}
+                  onChange={(e) => setThemeScheduleEnd(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="density">Density</Label>
+            <Label htmlFor="density" className="flex items-center gap-1">
+              Density
+              <HelpHint text='How tightly spaced lists and tables are. "Compact" fits more on screen; "Comfortable" is easier to tap.' />
+            </Label>
             <Select value={density} onValueChange={setDensity}>
               <SelectTrigger id="density" className="w-40">
                 <SelectValue />
@@ -347,7 +468,10 @@ export function SettingsPage() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="launch-view">Open on launch</Label>
+            <Label htmlFor="launch-view" className="flex items-center gap-1">
+              Open on launch
+              <HelpHint text="Which page BunkMate shows first when you start it." />
+            </Label>
             <Select value={launchView} onValueChange={setLaunchView}>
               <SelectTrigger id="launch-view" className="w-40">
                 <SelectValue />
@@ -357,6 +481,41 @@ export function SettingsPage() {
                 <SelectItem value="dashboard">Dashboard</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="font-scale" className="flex items-center gap-1">
+              Text size
+              <HelpHint text="Scales the whole app's text and controls, not just body text — useful if the default reads small." />
+            </Label>
+            <Select value={fontScale} onValueChange={setFontScale}>
+              <SelectTrigger id="font-scale" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default</SelectItem>
+                <SelectItem value="large">Large</SelectItem>
+                <SelectItem value="larger">Larger</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="high-contrast" className="flex items-center gap-1">
+              High contrast
+              <HelpHint text="Stronger contrast for muted text, borders, and the keyboard focus outline." />
+            </Label>
+            <div className="flex h-9 items-center">
+              <Switch id="high-contrast" checked={highContrast} onCheckedChange={setHighContrast} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              Mini mode
+              <HelpHint text="A small always-on-top window showing your overall % and next class — also available from the tray icon." />
+            </Label>
+            <Button type="button" variant="outline" onClick={() => window.bunkmate.miniWindow.toggle()}>
+              <PictureInPicture2 /> Open mini mode
+            </Button>
           </div>
 
           <div className="w-full space-y-2">
@@ -379,35 +538,6 @@ export function SettingsPage() {
                   {THEME_PACK_INFO[pack].label}
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div className="w-full space-y-2">
-            <Label htmlFor="accent-color">Custom accent color</Label>
-            <p className="text-sm text-muted-foreground">
-              Overrides the pack's accent with your own color. Leave blank to use the pack as picked above.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                aria-label="Pick a custom accent color"
-                className="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
-                value={isValidHexColor(accentColorInput) ? accentColorInput : '#2a78d6'}
-                onChange={(e) => handleAccentColorPicker(e.target.value)}
-              />
-              <Input
-                id="accent-color"
-                className="w-32 font-mono"
-                value={accentColorInput}
-                onChange={(e) => setAccentColorInput(e.target.value)}
-                onBlur={commitAccentColorText}
-                placeholder="#2a78d6"
-              />
-              {accentColor && (
-                <Button type="button" variant="outline" size="sm" onClick={clearAccentColor}>
-                  Clear
-                </Button>
-              )}
             </div>
           </div>
         </CardContent>
@@ -465,12 +595,25 @@ export function SettingsPage() {
             </div>
             <Switch id="exam-reminders" checked={examReminders} onCheckedChange={setExamReminders} />
           </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label htmlFor="weekly-digest" className="font-normal">
+                Weekly digest
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Sunday evening (6pm): this week's overall %, subjects below target, and exams coming up.
+              </p>
+            </div>
+            <Switch id="weekly-digest" checked={weeklyDigestEnabled} onCheckedChange={setWeeklyDigestEnabled} />
+          </div>
           <div className="border-t pt-3" />
           {!activeSemesterHasTimes ? (
             <p className="text-sm text-muted-foreground">
-              Reminders need real class times. Set them first with{' '}
-              <span className="font-medium">Auto-allocate times</span> in the Timetable's Grid settings for the
-              active semester, then this option unlocks.
+              Reminders need to know your actual class times first. Go to{' '}
+              <Link to="/timetable" className="font-medium underline">
+                Timetable
+              </Link>{' '}
+              → Grid settings → Auto-allocate times, then come back here to turn reminders on.
             </p>
           ) : (
             <>
@@ -525,6 +668,103 @@ export function SettingsPage() {
         </CardHeader>
       </Card>
 
+      <CollapsibleSection
+        title="Advanced settings"
+        summary="Custom accent color, ESPRO sync, auto-backup location"
+      >
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Custom accent color</CardTitle>
+              <CardDescription>Overrides the theme pack's accent with your own color. Leave blank to use the pack as picked above.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  aria-label="Pick a custom accent color"
+                  className="h-9 w-12 cursor-pointer rounded-md border border-input bg-transparent p-1"
+                  value={isValidHexColor(accentColorInput) ? accentColorInput : '#2a78d6'}
+                  onChange={(e) => handleAccentColorPicker(e.target.value)}
+                />
+                <Input
+                  id="accent-color"
+                  className="w-32 font-mono"
+                  value={accentColorInput}
+                  onChange={(e) => setAccentColorInput(e.target.value)}
+                  onBlur={commitAccentColorText}
+                  placeholder="#2a78d6"
+                />
+                {accentColor && (
+                  <Button type="button" variant="outline" size="sm" onClick={clearAccentColor}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Auto-backup location</CardTitle>
+              <CardDescription>
+                How often BunkMate saves a copy of your data automatically, and where. Pointing this at a folder
+                synced by OneDrive/Google Drive/Dropbox gives you an off-device (cloud) backup for free — each
+                snapshot just gets uploaded like any other file. This is a periodic copy, not live shared access:
+                don't point two installs of BunkMate at the same live database file at once, since SQLite isn't
+                built to have two processes writing to it through a sync client at the same time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-end gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="backup-interval">Auto-backup every (days)</Label>
+                <Input
+                  id="backup-interval"
+                  type="number"
+                  min={1}
+                  className="w-28"
+                  value={intervalInput}
+                  onChange={(e) => setIntervalInput(e.target.value)}
+                  onBlur={() => {
+                    const clamped = Math.max(1, Number(intervalInput) || 1)
+                    setIntervalInput(String(clamped))
+                    setBackupIntervalDays(clamped)
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Auto-backup folder</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{backupDir ?? 'Not set'}</span>
+                  <Button type="button" variant="outline" size="sm" onClick={handleChooseBackupDir}>
+                    <FolderOpen /> Choose folder
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Crash log</CardTitle>
+              <CardDescription>
+                Off by default. When on, an unexpected error writes a small text log to this device, so a support
+                report can include more than "it broke" — nothing is ever sent anywhere on its own.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch id="crash-log" checked={crashLogEnabled} onCheckedChange={setCrashLogEnabled} />
+                <Label htmlFor="crash-log" className="font-normal">
+                  Save a local crash log
+                </Label>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => window.bunkmate.crashLog.openFolder()}>
+                <FolderOpen /> Open log folder
+              </Button>
+            </CardContent>
+          </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>ESPRO sync</CardTitle>
@@ -563,7 +803,10 @@ export function SettingsPage() {
                 </span>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="espro-session-id">ESPRO session/term number</Label>
+                <Label htmlFor="espro-session-id" className="flex items-center gap-1">
+                  ESPRO session/term number
+                  <HelpHint text="Tells ESPRO which academic term to pull attendance from. It usually stays the same for the whole semester once set." />
+                </Label>
                 <p className="text-sm text-muted-foreground">
                   Scopes the attendance comparison on the Dashboard. Found in the portal's Network tab, look for a{' '}
                   <code className="rounded bg-muted px-1">?sessionId=</code> query param on an attendance request.
@@ -651,64 +894,95 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={esproRemoveOpen} onOpenChange={setEsproRemoveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove ESPRO credentials?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes the encrypted ESPRO login stored on this device. Attendance you've already
-              imported stays; you'll just need to re-enter your login to sync again. This can't be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEsproRemoveOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleEsproRemove}>
-              <Trash2 /> Remove credentials
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="size-4" /> Danger zone
+              </CardTitle>
+              <CardDescription>
+                Permanently deletes every semester, subject, timetable slot, attendance record, exam, holiday, leave
+                plan, and yellow form — including sample data from "try it with sample data". Your appearance,
+                notification, and ESPRO settings are kept. You can only get this back from a backup file, if you made
+                one (Backup &amp; restore, above).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button type="button" variant="destructive" onClick={() => setClearDataOpen(true)}>
+                <Trash2 /> Clear all data
+              </Button>
+            </CardContent>
+          </Card>
 
-      <EsproAboutDialog open={esproAboutOpen} onOpenChange={setEsproAboutOpen} />
+          <Dialog
+            open={clearDataOpen}
+            onOpenChange={(open) => {
+              setClearDataOpen(open)
+              if (!open) setClearDataText('')
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Clear all data?</DialogTitle>
+                <DialogDescription>
+                  This deletes every semester, subject, timetable slot, attendance record, exam, holiday, leave plan,
+                  and yellow form on this device. There's no undo except restoring a backup. Type{' '}
+                  <span className="font-mono font-medium text-foreground">DELETE</span> to confirm.
+                </DialogDescription>
+              </DialogHeader>
+              <Input
+                value={clearDataText}
+                onChange={(e) => setClearDataText(e.target.value)}
+                placeholder="DELETE"
+                className="font-mono"
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setClearDataOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={clearingData || clearDataText !== 'DELETE'}
+                  onClick={handleClearAllData}
+                >
+                  <Trash2 /> Clear all data
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={esproRemoveOpen} onOpenChange={setEsproRemoveOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Remove ESPRO credentials?</DialogTitle>
+                <DialogDescription>
+                  This permanently deletes the encrypted ESPRO login stored on this device. Attendance you've already
+                  imported stays; you'll just need to re-enter your login to sync again. This can't be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEsproRemoveOpen(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleEsproRemove}>
+                  <Trash2 /> Remove credentials
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <EsproAboutDialog open={esproAboutOpen} onOpenChange={setEsproAboutOpen} />
+        </div>
+      </CollapsibleSection>
 
       <Card>
         <CardHeader>
           <CardTitle>Backup &amp; restore</CardTitle>
           <CardDescription>
-            All data lives in one local SQLite file. Back it up regularly: restoring overwrites it entirely.
+            All data lives in one local SQLite file. Back it up regularly: restoring overwrites it entirely. Auto-backup
+            interval and folder are under Advanced settings above.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="backup-interval">Auto-backup every (days)</Label>
-              <Input
-                id="backup-interval"
-                type="number"
-                min={1}
-                className="w-28"
-                value={intervalInput}
-                onChange={(e) => setIntervalInput(e.target.value)}
-                onBlur={() => {
-                  const clamped = Math.max(1, Number(intervalInput) || 1)
-                  setIntervalInput(String(clamped))
-                  setBackupIntervalDays(clamped)
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Auto-backup folder</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">{backupDir ?? 'Not set'}</span>
-                <Button type="button" variant="outline" size="sm" onClick={handleChooseBackupDir}>
-                  <FolderOpen /> Choose folder
-                </Button>
-              </div>
-            </div>
-          </div>
-
           <p className="text-xs text-muted-foreground">
             {lastBackupAt ? `Last backup: ${new Date(lastBackupAt).toLocaleString()}` : 'No backup has been made yet.'}
           </p>

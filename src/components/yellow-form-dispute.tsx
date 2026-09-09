@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useYellowFormsStore } from '@/store/yellow-forms-store'
 import { useToastStore } from '@/store/toast-store'
+import { friendlyError } from '@/lib/friendly-error'
 import type { YellowForm, YellowFormDispute } from '../../electron/db/repositories/yellow-forms'
 import type { YellowFormDisputeOutcome } from '@/db/schema'
 
@@ -46,7 +47,8 @@ export function YellowFormDisputeBadge({ form, subjectName }: { form: YellowForm
       pushToast({ title: 'Dispute filed' })
       setFileDialogOpen(false)
     } catch (err) {
-      pushToast({ title: 'Could not file dispute', description: err instanceof Error ? err.message : String(err) })
+      const fe = friendlyError(err, 'Could not file dispute')
+      pushToast({ title: 'Could not file dispute', description: fe.message, detail: fe.detail })
     } finally {
       setFiling(false)
     }
@@ -64,7 +66,8 @@ export function YellowFormDisputeBadge({ form, subjectName }: { form: YellowForm
       pushToast({ title: `Dispute recorded as ${outcome}` })
       setDispute((await getDispute(form.id)) ?? null)
     } catch (err) {
-      pushToast({ title: 'Could not record outcome', description: err instanceof Error ? err.message : String(err) })
+      const fe = friendlyError(err, 'Could not record outcome')
+      pushToast({ title: 'Could not record outcome', description: fe.message, detail: fe.detail })
     } finally {
       setResolving(false)
     }

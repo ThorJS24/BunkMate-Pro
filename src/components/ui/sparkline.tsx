@@ -16,19 +16,7 @@ interface SparklineProps {
 export function Sparkline({ values, width = 96, height = 28, className }: SparklineProps) {
   const gradientId = useId()
   if (values.length < 2) {
-    return (
-      <svg width={width} height={height} className={className} aria-hidden="true">
-        <line
-          x1={0}
-          y1={height / 2}
-          x2={width}
-          y2={height / 2}
-          stroke="var(--chart-axis)"
-          strokeWidth={1}
-          strokeDasharray="2 2"
-        />
-      </svg>
-    )
+    return null
   }
 
   const pad = 2

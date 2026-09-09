@@ -176,10 +176,101 @@
   --ring: oklch(0.75 0.12 55);
 }
 
+/* CHRIST University-inspired packs — hues pulled directly from the real
+   christuniversity.in stylesheet (not eyeballed): #D98600 gold (their most-
+   used accent, on buttons/icons) and #0B1F3A navy (their header/structural
+   color). Crest/Founders/Campus follow the same single-hue pattern as the
+   packs above; Convocation is the deliberate exception — primary is navy but
+   accent/ring are gold, because that's literally how the real site pairs
+   the two (navy chrome, gold interactive highlights), not two shades of one
+   hue like every other pack here. */
+.theme-crest {
+  --primary: oklch(0.6 0.15 65);
+  --primary-foreground: oklch(0.18 0.02 65);
+  --accent: oklch(0.94 0.03 65);
+  --accent-foreground: oklch(0.5 0.15 65);
+  --ring: oklch(0.55 0.16 65);
+}
+.theme-crest.dark {
+  --primary: oklch(0.75 0.13 70);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.3 0.06 65);
+  --accent-foreground: oklch(0.75 0.13 70);
+  --ring: oklch(0.75 0.13 70);
+}
+
+.theme-founders {
+  --primary: oklch(0.22 0.045 255);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.92 0.02 255);
+  --accent-foreground: oklch(0.22 0.045 255);
+  --ring: oklch(0.32 0.06 255);
+}
+.theme-founders.dark {
+  --primary: oklch(0.68 0.06 255);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.26 0.035 255);
+  --accent-foreground: oklch(0.68 0.06 255);
+  --ring: oklch(0.68 0.06 255);
+}
+
+.theme-campus {
+  --primary: oklch(0.42 0.11 250);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.93 0.02 250);
+  --accent-foreground: oklch(0.42 0.11 250);
+  --ring: oklch(0.48 0.12 250);
+}
+.theme-campus.dark {
+  --primary: oklch(0.72 0.09 250);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.28 0.04 250);
+  --accent-foreground: oklch(0.72 0.09 250);
+  --ring: oklch(0.72 0.09 250);
+}
+
+.theme-convocation {
+  --primary: oklch(0.22 0.045 255);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --accent: oklch(0.94 0.03 65);
+  --accent-foreground: oklch(0.5 0.15 65);
+  --ring: oklch(0.55 0.16 65);
+}
+.theme-convocation.dark {
+  --primary: oklch(0.68 0.06 255);
+  --primary-foreground: oklch(0.16 0.01 75);
+  --accent: oklch(0.3 0.06 65);
+  --accent-foreground: oklch(0.75 0.13 70);
+  --ring: oklch(0.75 0.13 70);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(140, 140, 140, 0.35) transparent;
   }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(140, 140, 140, 0.35);
+    border-radius: 9999px;
+    transition: background-color 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(160, 160, 160, 0.65);
+  }
+
   html,
   body,
   #root {
@@ -187,7 +278,12 @@
   }
   body {
     @apply bg-background text-foreground;
-    font: 14px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif;
+    /* rem, not px: scales with the root font-size the font-scale setting
+       below adjusts, instead of staying fixed while Tailwind's rem-based
+       text utilities elsewhere on the page grow. */
+    font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.5;
     margin: 0;
   }
 
@@ -220,6 +316,38 @@
   padding: 1rem;
 }
 
+/* Font-size scale: an accessibility setting, not a density-adjacent thing —
+   moves the root font-size that every rem-based Tailwind text/spacing
+   utility is relative to, so the whole UI (not just body text) grows
+   together. Toggled on <html> in use-theme.ts. Unset root font-size falls
+   back to the browser default (16px). */
+:root.font-scale-large {
+  font-size: 18px;
+}
+:root.font-scale-larger {
+  font-size: 20px;
+}
+
+/* High contrast: an opt-in accessibility setting that pushes muted text and
+   borders further from the background than the default palette (which was
+   tuned for a soft, "paper" look rather than maximum contrast), and makes
+   the keyboard focus ring impossible to miss. Combines with .dark, since
+   it's an orthogonal toggle to light/dark rather than a theme pack. */
+.high-contrast {
+  --muted-foreground: oklch(0.32 0.02 75);
+  --border: oklch(0.65 0.03 80);
+  --input: oklch(0.65 0.03 80);
+}
+.high-contrast.dark {
+  --muted-foreground: oklch(0.85 0.02 75);
+  --border: oklch(0.48 0.02 75);
+  --input: oklch(0.48 0.02 75);
+}
+.high-contrast *:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* react-grid-layout's resize handle (Dashboard) hardcodes its corner mark to
    rgba(0,0,0,0.4) in its own stylesheet — invisible against a dark-mode tile,
    which is the default theme here. !important because the library's own CSS
@@ -233,4 +361,28 @@
   height: 8px !important;
   border-right: 2.5px solid var(--muted-foreground) !important;
   border-bottom: 2.5px solid var(--muted-foreground) !important;
+}
+
+/* Printing (Timetable's "Print" button, window.print()): the sidebar/header
+   chrome (.no-print, set in app-shell.tsx) and anything a specific page
+   marks .no-print (filters, buttons — not the content itself) drop out, ink
+   stays black-on-white regardless of the active theme/dark-mode, and colored
+   subject cells keep their color in print (browsers strip background colors
+   by default unless told to keep them). */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }
