@@ -60,7 +60,7 @@
     "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
-    "lucide-react": "^1.24.0",
+    "lucide-react": "^1.41.0",
     "oxlint": "^1.71.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
