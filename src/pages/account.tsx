@@ -286,7 +286,7 @@ export function AccountPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4 bg-muted/20">
             <div>
               <p className="text-sm font-medium">Installed Version</p>
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.0 (Production Release)</p>
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.1 (Multi-Platform Production Release)</p>
             </div>
 
             <div className="flex items-center gap-2">
