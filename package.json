@@ -89,6 +89,13 @@
     "productName": "BunkMate Pro",
     "copyright": "Copyright © 2026 BunkMate Pro Team",
     "artifactName": "${productName}-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ThorJS24",
+        "repo": "BunkMate-Pro"
+      }
+    ],
     "files": [
       "dist/**",
       "dist-electron/**"

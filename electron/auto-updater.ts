@@ -15,6 +15,17 @@ export function initAutoUpdater(mainWindow: BrowserWindow) {
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.logger = console
+
+  try {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'ThorJS24',
+      repo: 'BunkMate-Pro',
+    })
+  } catch (err) {
+    console.error('[AutoUpdater] Feed URL set error:', err)
+  }
 
   autoUpdater.on('checking-for-update', () => {
     sendStatus({ status: 'checking' })
