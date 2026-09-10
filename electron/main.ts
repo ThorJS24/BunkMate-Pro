@@ -12,17 +12,30 @@ import { initAutoUpdater } from './auto-updater'
 
 let stopEsproAutoSync: (() => void) | null = null
 
+// Register custom protocol handler bunkmate://
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('bunkmate', process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('bunkmate')
+}
+
 // Enforce a single instance lock so launching BunkMate twice focuses the existing window
 // instead of launching a second process that conflicts on the SQLite database lock.
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, commandLine) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       if (!mainWindow.isVisible()) mainWindow.show()
       mainWindow.focus()
+    }
+    const deepLinkUrl = commandLine.find((arg) => arg.startsWith('bunkmate://'))
+    if (deepLinkUrl && mainWindow) {
+      mainWindow.webContents.send('bunkmate:deeplink', deepLinkUrl)
     }
   })
 }

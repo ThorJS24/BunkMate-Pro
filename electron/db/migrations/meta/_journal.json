@@ -183,6 +183,20 @@
       "when": 1785560063109,
       "tag": "0025_slimy_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1789041190941,
+      "tag": "0026_silky_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1789047123605,
+      "tag": "0027_amused_wrecker",
+      "breakpoints": true
     }
   ]
 }

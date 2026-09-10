@@ -6,6 +6,7 @@
 // drill-down), so there's no honest way to turn its data into per-period
 // attendance records without fabricating dates/periods BunkMate can't verify.
 import type { AppDatabase } from '../db/client'
+import type { EsproProgress } from '../ipc/contract'
 import {
   subjectsRepo,
   semestersRepo,
@@ -16,16 +17,59 @@ import {
   periodTypeRulesRepo,
 } from '../db/repositories'
 import { computeAttendance } from '../../src/lib/attendance-engine'
+import { getSettings } from '../db/repositories/settings'
 import { loadEsproCredential, readEsproSessionId, saveEsproSessionId } from './credential-store'
 import { esproLogin, httpRequest, generateDPoPProof, type EsproSession } from './login'
 import { EsproLoginError } from './http-util'
 import { allocateEvenPeriodTimes } from '../../src/lib/period-time-allocation'
+import { eq } from 'drizzle-orm'
+import { subjects, timetableSlots, exams, type Weekday } from '../../src/db/schema'
 import {
   parseCourseWiseAttendance,
   compareAttendanceTotals,
   type AttendanceComparisonRow,
   type LocalSubjectTotal,
 } from './attendance-totals'
+
+export function detectSemesterNumberFromCourses(courses: { courseCode?: string | null; courseName?: string }[]): number {
+  for (const c of courses) {
+    const text = `${c.courseCode ?? ''} ${c.courseName ?? ''}`
+    const match = text.match(/\bsem(?:ester)?\s*([1-8])\b|\b([1-8])th\s*sem\b|\b[A-Z]{2,4}([1-8])\d{2}\b/i)
+    if (match) {
+      const numStr = match[1] || match[2] || match[3]
+      if (numStr) return parseInt(numStr, 10)
+    }
+  }
+  return 1
+}
+
+export function seedCommonUniversityHolidays(db: AppDatabase) {
+  const existing = holidaysRepo.listHolidays(db)
+  const commonHolidays = [
+    { name: 'New Year', date: '2026-01-01', type: 'university' },
+    { name: 'St. Chavara Day', date: '2026-01-03', type: 'university' },
+    { name: 'Republic Day', date: '2026-01-26', type: 'public' },
+    { name: 'Good Friday', date: '2026-04-03', type: 'public' },
+    { name: 'Independence Day', date: '2026-08-15', type: 'public' },
+    { name: 'Ganesh Chaturthi', date: '2026-09-14', type: 'public' },
+    { name: 'Gandhi Jayanti', date: '2026-10-02', type: 'public' },
+    { name: 'Ayudha Puja / Mahanavami', date: '2026-10-19', type: 'university' },
+    { name: 'Vijayadashami / Dussehra', date: '2026-10-20', type: 'public' },
+    { name: 'Kannada Rajyotsava', date: '2026-11-01', type: 'public' },
+    { name: 'Deepavali', date: '2026-11-08', type: 'public' },
+    { name: 'Christmas', date: '2026-12-25', type: 'public' },
+  ]
+  for (const h of commonHolidays) {
+    if (!existing.some((e) => e.date === h.date)) {
+      holidaysRepo.createHoliday(db, {
+        label: h.name,
+        date: h.date,
+        type: h.type as any,
+      })
+    }
+  }
+}
+
 import {
   parsePerDayAttendanceCount,
   parsePerDayAttendanceDetails,
@@ -35,6 +79,7 @@ import {
   periodNumberForTime,
   type DayComparisonRow,
   type LocalDayCount,
+  type EsproDayCount,
   type LocalPeriodRecord,
   type LocalSubjectRef,
   type DayPeriodDetail,
@@ -315,6 +360,69 @@ export interface EsproSyncResult {
   offlineCached?: boolean
 }
 
+export async function syncTimetableFromEspro(params: {
+  session: EsproSession
+  sessionId: string
+  esproDays: EsproDayCount[]
+  localSubjects: LocalSubjectRef[]
+  periodTimes: { period: number; startTime: string }[]
+  semesterLabel: string
+  db: AppDatabase
+}) {
+  const { session, sessionId, esproDays, localSubjects, periodTimes, semesterLabel, db } = params
+
+  const WEEKDAYS_MAP: Record<number, Weekday> = {
+    1: 'mon',
+    2: 'tue',
+    3: 'wed',
+    4: 'thu',
+    5: 'fri',
+    6: 'sat',
+  }
+
+  // Sample recent dates for each distinct day of week
+  const datesByDay = new Map<Weekday, string>()
+  const sortedDays = [...esproDays].sort((a, b) => (a.date > b.date ? -1 : 1))
+
+  for (const dayObj of sortedDays) {
+    const dObj = new Date(`${dayObj.date}T00:00:00`)
+    const dayOfWeek = WEEKDAYS_MAP[dObj.getDay()]
+    if (dayOfWeek && !datesByDay.has(dayOfWeek)) {
+      datesByDay.set(dayOfWeek, dayObj.date)
+    }
+    if (datesByDay.size >= 6) break
+  }
+
+  for (const [dayOfWeek, date] of datesByDay.entries()) {
+    try {
+      const detailJson = await fetchPerDayAttendanceDetails(session, sessionId, date)
+      const esproPeriods = parsePerDayAttendanceDetails(detailJson)
+
+      for (const p of esproPeriods) {
+        const subject = matchEsproCourseToLocalSubject(p.courseCode, p.courseName, localSubjects)
+        const period = periodNumberForTime(periodTimes, p.periodStartTime)
+
+        if (subject) {
+          if (p.facultyName) {
+            subjectsRepo.updateSubject(db, subject.id, { faculty: p.facultyName })
+          }
+          if (period !== undefined) {
+            timetableSlotsRepo.createTimetableSlot(db, {
+              semester: semesterLabel,
+              day: dayOfWeek,
+              period,
+              subjectId: subject.id,
+              type: 'class',
+            })
+          }
+        }
+      }
+    } catch {
+      // Ignore individual day fetch errors during timetable sampling
+    }
+  }
+}
+
 /**
  * The actual sync (unlike esproCompareAttendance above, this writes real
  * attendance records): logs into ESPRO, fetches its day-wise present/absent
@@ -331,7 +439,10 @@ export async function esproSyncAttendance(
   db: AppDatabase,
   userDataDir: string,
   semesterLabel: string,
+  onProgress?: (p: EsproProgress) => void,
 ): Promise<EsproSyncResult> {
+  onProgress?.({ stage: 'logging_in', message: 'Authenticating with ESPRO portal...', percentage: 10 })
+
   const creds = loadEsproCredential(userDataDir)
   if (!creds) throw new Error('No ESPRO credential is stored yet. Add one in Settings first.')
 
@@ -369,6 +480,7 @@ export async function esproSyncAttendance(
         : err instanceof Error && /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|fetch|network|offline/i.test(err.message)
     const localRecordsCount = attendanceRecordsRepo.listAttendanceRecords(db).length
     if (isNetworkError && localRecordsCount > 0) {
+      onProgress?.({ stage: 'done', message: 'Using offline cached attendance data.', percentage: 100 })
       return {
         created: 0,
         updated: 0,
@@ -378,14 +490,27 @@ export async function esproSyncAttendance(
         offlineCached: true,
       }
     }
+    onProgress?.({ stage: 'error', message: err instanceof Error ? err.message : 'Login failed', percentage: 0 })
     throw err
   }
 
+  onProgress?.({ stage: 'fetching_overview', message: 'Fetching attendance totals from ESPRO...', percentage: 25 })
   const dayCountJson = await fetchPerDayAttendanceCount(session, sessionId)
   const esproDays = parsePerDayAttendanceCount(dayCountJson)
 
   const subjects = subjectsRepo.listSubjects(db, { semester: semesterLabel })
   const localSubjects: LocalSubjectRef[] = subjects.map((s) => ({ id: s.id, name: s.name }))
+
+  // Always sync weekly timetable grid and subject faculty from ESPRO
+  await syncTimetableFromEspro({
+    session,
+    sessionId,
+    esproDays,
+    localSubjects,
+    periodTimes,
+    semesterLabel: semester.label,
+    db,
+  })
   const subjectIds = new Set(subjects.map((s) => s.id))
   const records = attendanceRecordsRepo.listAttendanceRecords(db).filter((r) => subjectIds.has(r.subjectId))
 
@@ -407,56 +532,112 @@ export async function esproSyncAttendance(
   let unchanged = 0
   const unmatchedDates: string[] = []
 
-  for (const date of datesToSync) {
-    const detailJson = await fetchPerDayAttendanceDetails(session, sessionId, date)
-    const esproPeriods = parsePerDayAttendanceDetails(detailJson)
-
-    const existingByPeriod = new Map<string, 'present' | 'absent'>()
-    for (const r of records) {
-      if (r.date === date) existingByPeriod.set(`${r.subjectId}:${r.period}`, r.status)
-    }
-
-    const { entries, unmatched } = planEsproSyncForDate({ date, esproPeriods, localSubjects, periodTimes, existingByPeriod })
-    if (unmatched.length > 0) unmatchedDates.push(date)
-
-    for (const entry of entries) {
-      if (entry.action === 'unchanged') {
-        unchanged++
-        continue
-      }
-      attendanceRecordsRepo.createAttendanceRecord(db, {
-        subjectId: entry.subjectId,
-        date: entry.date,
-        period: entry.period,
-        status: entry.status,
-        source: 'espro',
-        slotId: null,
+  if (datesToSync.length === 0) {
+    onProgress?.({ stage: 'done', message: 'All attendance records are up to date!', percentage: 100 })
+  } else {
+    for (let i = 0; i < datesToSync.length; i++) {
+      const date = datesToSync[i]
+      const pct = Math.min(95, Math.round(40 + ((i + 1) / datesToSync.length) * 55))
+      onProgress?.({
+        stage: 'syncing_days',
+        message: `Syncing period records for ${date} (${i + 1} of ${datesToSync.length})...`,
+        current: i + 1,
+        total: datesToSync.length,
+        percentage: pct,
       })
-      if (entry.action === 'create') created++
-      else updated++
-    }
 
-    const existingYellowForms = yellowFormsRepo.listYellowForms(db)
-    for (const p of esproPeriods) {
-      const isDutyLeave = p.isCocurricular || p.isMedical || (!!p.attendanceType && /duty|co-curricular|excused|yellow|leave|\bod\b/i.test(p.attendanceType))
-      if (!isDutyLeave) continue
-      const subject = matchEsproCourseToLocalSubject(p.courseCode, p.courseName, localSubjects)
-      const period = periodNumberForTime(periodTimes, p.periodStartTime)
-      if (!subject || period === undefined) continue
+      const detailJson = await fetchPerDayAttendanceDetails(session, sessionId, date)
+      const esproPeriods = parsePerDayAttendanceDetails(detailJson)
 
-      const exists = existingYellowForms.some((yf) => yf.subjectId === subject.id && yf.date === date && (yf.period === period || yf.period === null))
-      if (!exists) {
-        const createdForm = yellowFormsRepo.createYellowForm(db, {
-          subjectId: subject.id,
-          date,
-          period,
-          reason: p.attendanceType || (p.isMedical ? 'Medical Leave (ESPRO)' : 'Co-curricular / Duty Leave (ESPRO)'),
+      const existingByPeriod = new Map<string, 'present' | 'absent'>()
+      for (const r of records) {
+        if (r.date === date) existingByPeriod.set(`${r.subjectId}:${r.period}`, r.status)
+      }
+
+      const { entries, unmatched } = planEsproSyncForDate({ date, esproPeriods, localSubjects, periodTimes, existingByPeriod })
+      if (unmatched.length > 0) unmatchedDates.push(date)
+
+      for (const entry of entries) {
+        if (entry.action === 'unchanged') {
+          unchanged++
+          continue
+        }
+        attendanceRecordsRepo.createAttendanceRecord(db, {
+          subjectId: entry.subjectId,
+          date: entry.date,
+          period: entry.period,
+          status: entry.status,
+          source: 'espro',
+          slotId: null,
         })
-        yellowFormsRepo.setYellowFormStatus(db, createdForm.id, 'approved')
+        if (entry.action === 'create') created++
+        else updated++
+      }
+
+      const WEEKDAYS_MAP: Record<number, Weekday> = {
+        1: 'mon',
+        2: 'tue',
+        3: 'wed',
+        4: 'thu',
+        5: 'fri',
+        6: 'sat',
+      }
+      const dateObj = new Date(`${date}T00:00:00`)
+      const dayOfWeek = WEEKDAYS_MAP[dateObj.getDay()]
+
+      for (const p of esproPeriods) {
+        const subject = matchEsproCourseToLocalSubject(p.courseCode, p.courseName, localSubjects)
+        const period = periodNumberForTime(periodTimes, p.periodStartTime)
+
+        if (subject) {
+          if (p.facultyName) {
+            subjectsRepo.updateSubject(db, subject.id, { faculty: p.facultyName })
+          }
+          if (dayOfWeek && period !== undefined) {
+            timetableSlotsRepo.createTimetableSlot(db, {
+              semester: semester.label,
+              day: dayOfWeek,
+              period,
+              subjectId: subject.id,
+              type: 'class',
+            })
+          }
+        }
+      }
+
+      const appSettings = getSettings(db)
+      const allowYellowForms = appSettings.esproAutoYellowForms !== false
+
+      if (allowYellowForms) {
+        const existingYellowForms = yellowFormsRepo.listYellowForms(db)
+        for (const p of esproPeriods) {
+          const isDutyLeave =
+            p.isCocurricular ||
+            p.isMedical ||
+            (!!p.attendanceType && /duty|co-curricular|excused|yellow|leave|\bod\b/i.test(p.attendanceType))
+          if (!isDutyLeave) continue
+          const subject = matchEsproCourseToLocalSubject(p.courseCode, p.courseName, localSubjects)
+          const period = periodNumberForTime(periodTimes, p.periodStartTime)
+          if (!subject || period === undefined) continue
+
+          const exists = existingYellowForms.some(
+            (yf) => yf.subjectId === subject.id && yf.date === date && (yf.period === period || yf.period === null),
+          )
+          if (!exists) {
+            const createdForm = yellowFormsRepo.createYellowForm(db, {
+              subjectId: subject.id,
+              date,
+              period,
+              reason: p.attendanceType || (p.isMedical ? 'Medical Leave (ESPRO)' : 'Co-curricular / Duty Leave (ESPRO)'),
+            })
+            yellowFormsRepo.setYellowFormStatus(db, createdForm.id, 'approved')
+          }
+        }
       }
     }
   }
 
+  onProgress?.({ stage: 'done', message: `Sync complete. ${created} new, ${updated} updated period(s).`, percentage: 100 })
   return { created, updated, unchanged, unmatchedDates, missingPeriodTimes: false }
 }
 
@@ -473,7 +654,10 @@ export async function esproAutoImportFullStudentData(
   db: AppDatabase,
   userDataDir: string,
   semesterLabel: string,
+  onProgress?: (p: EsproProgress) => void,
 ): Promise<EsproAutoImportResult> {
+  onProgress?.({ stage: 'logging_in', message: 'Authenticating with ESPRO portal...', percentage: 5 })
+
   const creds = loadEsproCredential(userDataDir)
   if (!creds) throw new Error('No ESPRO credential is stored yet. Add your register number and password in Settings.')
 
@@ -497,8 +681,6 @@ export async function esproAutoImportFullStudentData(
     }
     semester = activeSem
   }
-  const targetSemesterLabel = semester.label
-
   let session
   let sessionId
   try {
@@ -511,6 +693,7 @@ export async function esproAutoImportFullStudentData(
         : err instanceof Error && /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|fetch|network|offline/i.test(err.message)
     const localRecordsCount = attendanceRecordsRepo.listAttendanceRecords(db).length
     if (isNetworkError && localRecordsCount > 0) {
+      onProgress?.({ stage: 'done', message: 'Using offline cached attendance data.', percentage: 100 })
       return {
         created: 0,
         updated: 0,
@@ -521,14 +704,50 @@ export async function esproAutoImportFullStudentData(
         offlineCached: true,
       }
     }
+    onProgress?.({ stage: 'error', message: err instanceof Error ? err.message : 'Login failed', percentage: 0 })
     throw err
   }
 
   // 1. Fetch official course totals to discover all courses on ESPRO
+  onProgress?.({ stage: 'discovering_courses', message: 'Discovering course catalog & enrolled subjects...', percentage: 20 })
   const courseJson = await fetchCourseWiseAttendance(session, sessionId)
   const esproCourses = parseCourseWiseAttendance(courseJson)
 
+  // Detect student's actual semester number (e.g. Semester 7)
+  const detectedSemNum = detectSemesterNumberFromCourses(esproCourses)
+  const detectedSemLabel = `Semester ${detectedSemNum}`
+
+  let activeSem = semester || existingSemesters.find((s) => s.isActive) || existingSemesters[0]
+  if (activeSem && activeSem.label !== detectedSemLabel && (activeSem.label === 'Semester 1' || !semesterLabel) && detectedSemNum > 1) {
+    const oldLabel = activeSem.label
+    activeSem = semestersRepo.updateSemester(db, activeSem.id, {
+      number: detectedSemNum,
+      label: detectedSemLabel,
+    })
+    // Re-key existing subjects, slots, and exams to the detected semester label so subjects aren't duplicated
+    db.update(subjects).set({ semester: detectedSemLabel }).where(eq(subjects.semester, oldLabel)).run()
+    db.update(timetableSlots).set({ semester: detectedSemLabel }).where(eq(timetableSlots.semester, oldLabel)).run()
+    db.update(exams).set({ semester: detectedSemLabel }).where(eq(exams.semester, oldLabel)).run()
+    semester = activeSem
+  } else if (!activeSem) {
+    const todayIso = new Date().toISOString().slice(0, 10)
+    const fourMonthsLaterIso = new Date(Date.now() + 120 * 86400000).toISOString().slice(0, 10)
+    activeSem = semestersRepo.createSemester(db, {
+      number: detectedSemNum,
+      label: detectedSemLabel,
+      startDate: todayIso,
+      endDate: fourMonthsLaterIso,
+      isActive: true,
+    })
+    semester = activeSem
+  }
+  const targetSemesterLabel = semester ? semester.label : detectedSemLabel
+
+  // Seed academic calendar holidays for target semester
+  seedCommonUniversityHolidays(db)
+
   // 2. Auto-create any missing subjects (including archived subjects to respect unselected electives)
+  onProgress?.({ stage: 'creating_subjects', message: `Configuring subject list for ${targetSemesterLabel}...`, percentage: 30 })
   const localSubjects = subjectsRepo.listSubjects(db, { semester: targetSemesterLabel, includeArchived: true })
   let subjectsCreated = 0
   for (const esproCourse of esproCourses) {
@@ -564,8 +783,15 @@ export async function esproAutoImportFullStudentData(
     semestersRepo.updateSemester(db, semester.id, { periodTimes })
   }
 
-  // 4. Perform full sync
-  const syncResult = await esproSyncAttendance(db, userDataDir, targetSemesterLabel)
+  // 4. Perform full sync with progress remapped to 35..100%
+  const syncResult = await esproSyncAttendance(db, userDataDir, targetSemesterLabel, (subProgress) => {
+    // Map subProgress.percentage (10..100) to 35..100
+    const remappedPct = Math.round(35 + (subProgress.percentage * 65) / 100)
+    onProgress?.({
+      ...subProgress,
+      percentage: remappedPct,
+    })
+  })
 
   return {
     ...syncResult,

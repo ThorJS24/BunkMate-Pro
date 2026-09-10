@@ -50,12 +50,31 @@ export function initAutoUpdater(mainWindow: BrowserWindow) {
   autoUpdater.on('error', (err) => {
     sendStatus({ status: 'error', error: err ? err.message : 'Unknown updater error' })
   })
+
+  // Schedule auto-check 10 seconds after startup
+  setTimeout(() => {
+    checkForUpdates().catch((err) => console.error('[AutoUpdater] Initial check error:', err))
+  }, 10_000)
+
+  // Schedule periodic check every 6 hours
+  setInterval(() => {
+    checkForUpdates().catch((err) => console.error('[AutoUpdater] Periodic check error:', err))
+  }, 6 * 60 * 60 * 1000)
 }
 
 function sendStatus(payload: UpdateStatusPayload) {
   if (mainWindowRef && !mainWindowRef.isDestroyed()) {
     mainWindowRef.webContents.send('updater:status', payload)
   }
+}
+
+function isHigherVersion(remote: string, current: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0)
+  const [rMajor = 0, rMinor = 0, rPatch = 0] = parse(remote)
+  const [cMajor = 0, cMinor = 0, cPatch = 0] = parse(current)
+  if (rMajor !== cMajor) return rMajor > cMajor
+  if (rMinor !== cMinor) return rMinor > cMinor
+  return rPatch > cPatch
 }
 
 export async function checkForUpdates(): Promise<UpdateStatusPayload> {
@@ -71,8 +90,11 @@ export async function checkForUpdates(): Promise<UpdateStatusPayload> {
 
   try {
     const res = await autoUpdater.checkForUpdates()
-    if (!res || !res.updateInfo) {
-      const notAvailPayload: UpdateStatusPayload = { status: 'not-available' }
+    if (!res || !res.updateInfo || !isHigherVersion(res.updateInfo.version, app.getVersion())) {
+      const notAvailPayload: UpdateStatusPayload = {
+        status: 'not-available',
+        error: `You are running the latest version of BunkMate Pro (v${app.getVersion()}).`,
+      }
       sendStatus(notAvailPayload)
       return notAvailPayload
     }

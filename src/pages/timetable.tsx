@@ -89,7 +89,7 @@ export function TimetablePage() {
   const [gridSettingsOpen, setGridSettingsOpen] = useState(false)
   const [gridForm, setGridForm] = useState({
     periodsPerDay: '7',
-    lunchPeriod: '4',
+    lunchPeriod: '5',
     dayStartTime: '',
     dayEndTime: '',
   })

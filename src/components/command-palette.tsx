@@ -15,6 +15,7 @@ import {
   MoonStar,
   ArrowRight,
   Award,
+  Bug,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useSubjectsStore } from '@/store/subjects-store'
@@ -96,6 +97,16 @@ export function CommandPalette() {
       run: go('/subjects'),
     }))
     const actionCommands: Command[] = [
+      {
+        id: 'report-issue',
+        label: 'Report a Bug or Issue',
+        hint: 'Support & Feedback',
+        icon: Bug,
+        run: () => {
+          setOpen(false)
+          go('/settings')()
+        },
+      },
       {
         id: 'toggle-theme',
         label: theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',

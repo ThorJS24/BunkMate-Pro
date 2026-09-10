@@ -82,7 +82,7 @@ export const semesters = sqliteTable('semesters', {
   // a new slot is opened there. See src/lib/timetable-rules.ts for the
   // teaching-period cap these interact with.
   periodsPerDay: integer('periods_per_day').notNull().default(7),
-  lunchPeriod: integer('lunch_period').notNull().default(4),
+  lunchPeriod: integer('lunch_period').notNull().default(5),
   // Null means "not auto-allocated yet" — the Timetable grid falls back to
   // plain "Period N" labels. Set via "Auto-allocate times" in Grid Settings;
   // changing periodsPerDay, lunchPeriod, or the day start/end time afterward
@@ -350,6 +350,8 @@ export const settings = sqliteTable('settings', {
   // sharing beyond "it just closed". Off by default — logging is a
   // deliberate choice, not a silent default.
   crashLogEnabled: integer('crash_log_enabled', { mode: 'boolean' }).notNull().default(false),
+  // Toggle for auto-creating Yellow Forms when syncing duty/medical leave from ESPRO.
+  esproAutoYellowForms: integer('espro_auto_yellow_forms', { mode: 'boolean' }).notNull().default(true),
   // Sunday-evening native notification summarizing the week (overall %,
   // subjects below target, exams coming up) — see src/lib/weekly-digest.ts.
   // Defaults on like exam reminders: low-frequency (once a week), so the
@@ -368,6 +370,52 @@ export const settings = sqliteTable('settings', {
 
 export const SETTINGS_SINGLETON_ID = 1
 
+export interface MediaAttachment {
+  name: string
+  type: string
+  dataUrl?: string
+  path?: string
+}
+
+export const ISSUE_CATEGORIES = ['bug', 'feature', 'espro_sync', 'ui', 'other'] as const
+export type IssueCategory = (typeof ISSUE_CATEGORIES)[number]
+
+export const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const
+export type IssueSeverity = (typeof ISSUE_SEVERITIES)[number]
+
+export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const
+export type IssueStatus = (typeof ISSUE_STATUSES)[number]
+
+export const issueReports = sqliteTable('issue_reports', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  category: text('category').$type<IssueCategory>().notNull().default('bug'),
+  severity: text('severity').$type<IssueSeverity>().notNull().default('medium'),
+  description: text('description').notNull(),
+  status: text('status').$type<IssueStatus>().notNull().default('open'),
+  mediaAttachments: text('media_attachments', { mode: 'json' }).$type<MediaAttachment[]>().notNull().default([]),
+  systemDiagnostics: text('system_diagnostics'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
+export const issueComments = sqliteTable('issue_comments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  issueId: integer('issue_id')
+    .notNull()
+    .references(() => issueReports.id, { onDelete: 'cascade' }),
+  author: text('author').notNull().default('User'),
+  comment: text('comment').notNull(),
+  mediaAttachments: text('media_attachments', { mode: 'json' }).$type<MediaAttachment[]>().notNull().default([]),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
 export const schema = {
   semesters,
   subjects,
@@ -380,4 +428,6 @@ export const schema = {
   yellowForms,
   yellowFormDisputes,
   settings,
+  issueReports,
+  issueComments,
 }

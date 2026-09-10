@@ -48,7 +48,7 @@ function emptyForm(nextNumber: number): SemesterFormState {
     startDate: todayIso(),
     endDate: todayIso(),
     periodsPerDay: '7',
-    lunchPeriod: '4',
+    lunchPeriod: '5',
     isActive: false,
   }
 }

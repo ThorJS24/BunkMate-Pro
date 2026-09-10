@@ -5,6 +5,7 @@ const api: BunkMateApi = {
   versions: {
     node: process.versions.node,
     electron: process.versions.electron,
+    app: '2.1.2',
   },
 
   semesters: {
@@ -137,12 +138,22 @@ const api: BunkMateApi = {
       ipcRenderer.on('espro:autoSynced', listener)
       return () => ipcRenderer.removeListener('espro:autoSynced', listener)
     },
+    onProgress: (callback) => {
+      const listener = (_e: unknown, data: any) => callback(data)
+      ipcRenderer.on(IPC_CHANNELS.esproProgress, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.esproProgress, listener)
+    },
   },
 
   backup: {
     now: () => ipcRenderer.invoke(IPC_CHANNELS.backupNow),
     restore: () => ipcRenderer.invoke(IPC_CHANNELS.backupRestore),
     chooseDir: () => ipcRenderer.invoke(IPC_CHANNELS.backupChooseDir),
+  },
+
+  db: {
+    vacuum: () => ipcRenderer.invoke(IPC_CHANNELS.dbVacuum),
+    stats: () => ipcRenderer.invoke(IPC_CHANNELS.dbStats),
   },
 
   updater: {
@@ -154,6 +165,16 @@ const api: BunkMateApi = {
       ipcRenderer.on('updater:status', listener)
       return () => ipcRenderer.removeListener('updater:status', listener)
     },
+  },
+
+  issues: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.issuesList),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.issuesCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.issuesUpdate, id, input),
+    delete: (id) => ipcRenderer.invoke(IPC_CHANNELS.issuesDelete, id),
+    listComments: (issueId) => ipcRenderer.invoke(IPC_CHANNELS.issuesListComments, issueId),
+    addComment: (input) => ipcRenderer.invoke(IPC_CHANNELS.issuesAddComment, input),
+    selectMedia: () => ipcRenderer.invoke(IPC_CHANNELS.issuesSelectMedia),
   },
 }
 

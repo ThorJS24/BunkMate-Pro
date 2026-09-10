@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useToastStore } from '@/store/toast-store'
@@ -20,12 +21,17 @@ import { useSettingsStore } from '@/store/settings-store'
 import { useAttendanceStore } from '@/store/attendance-store'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { useSemestersStore } from '@/store/semesters-store'
+import { useTimetableStore } from '@/store/timetable-store'
 import { PrivacyPolicyDialog } from '@/components/privacy-policy-dialog'
 import { SignOutDialog } from '@/components/sign-out-dialog'
+import { EsproProgressBar } from '@/components/espro-progress-bar'
+import { useEsproSyncStore } from '@/store/espro-sync-store'
 import type { EsproStatus } from '../../electron/espro/types'
 
 export function AccountPage() {
   const currentSemester = useSettingsStore((s) => s.currentSemester)
+  const esproAutoYellowForms = useSettingsStore((s) => s.esproAutoYellowForms)
+  const setEsproAutoYellowForms = useSettingsStore((s) => s.setEsproAutoYellowForms)
   const loadRecords = useAttendanceStore((s) => s.load)
   const pushToast = useToastStore((s) => s.push)
 
@@ -94,6 +100,7 @@ export function AccountPage() {
       await loadStatus()
 
       if (currentSemester) {
+        useEsproSyncStore.getState().startSync('Connecting to ESPRO & starting sync...')
         await handleAutoImport()
       }
     } catch {
@@ -105,6 +112,7 @@ export function AccountPage() {
 
   async function handleAutoImport() {
     setSyncing(true)
+    useEsproSyncStore.getState().startSync('Initializing 1-Click ESPRO Auto-Import...')
     try {
       const targetSem = currentSemester || ''
       const res = await window.bunkmate.espro.autoImport(targetSem)
@@ -112,6 +120,7 @@ export function AccountPage() {
       await useSemestersStore.getState().load()
       await useSettingsStore.getState().load()
       useSubjectsStore.getState().load({ includeArchived: false })
+      if (targetSem) await useTimetableStore.getState().load(targetSem)
       await loadRecords()
 
       pushToast({
@@ -252,6 +261,24 @@ export function AccountPage() {
             />
           </div>
 
+          <div className="flex items-center justify-between rounded-lg border p-3.5 bg-muted/20">
+            <div className="space-y-0.5">
+              <Label htmlFor="auto-yellow-forms" className="text-sm font-medium cursor-pointer">
+                Auto-create Yellow Forms on Sync
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically file approved Yellow Forms when ESPRO records Co-curricular or Medical duty leave.
+              </p>
+            </div>
+            <Switch
+              id="auto-yellow-forms"
+              checked={esproAutoYellowForms}
+              onCheckedChange={(checked) => setEsproAutoYellowForms(checked)}
+            />
+          </div>
+
+          <EsproProgressBar className="my-3" />
+
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t">
             <div className="flex items-center gap-2">
               <Button onClick={handleSaveAndSync} disabled={saving || syncing}>
@@ -289,7 +316,9 @@ export function AccountPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4 bg-muted/20">
             <div>
               <p className="text-sm font-medium">Installed Version</p>
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.3 (Multi-Platform Production Release)</p>
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                v{window.bunkmate?.versions?.app || '2.1.2'} (Multi-Platform Production Release)
+              </p>
             </div>
 
             <div className="flex items-center gap-2">

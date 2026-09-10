@@ -44,6 +44,7 @@ export interface EsproPeriodDetail {
   isCocurricular?: boolean
   isMedical?: boolean
   attendanceType: string
+  facultyName?: string | null
 }
 
 /**
@@ -64,6 +65,16 @@ export function parsePerDayAttendanceDetails(json: unknown): EsproPeriodDetail[]
     if (!courseName || !periodStartTime || !periodEndTime) continue
     const isCocurricular = r.isCocurricular === true
     const isMedical = r.isMedical === true
+    const facultyName =
+      typeof r.facultyName === 'string' && r.facultyName.trim()
+        ? r.facultyName.trim()
+        : typeof r.teacherName === 'string' && r.teacherName.trim()
+          ? r.teacherName.trim()
+          : typeof r.faculty === 'string' && r.faculty.trim()
+            ? r.faculty.trim()
+            : typeof r.teacher === 'string' && r.teacher.trim()
+              ? r.teacher.trim()
+              : null
     rows.push({
       courseCode: typeof r.courseCode === 'string' && r.courseCode ? r.courseCode : null,
       courseName,
@@ -74,6 +85,7 @@ export function parsePerDayAttendanceDetails(json: unknown): EsproPeriodDetail[]
       isCocurricular,
       isMedical,
       attendanceType: typeof r.attendanceType === 'string' ? r.attendanceType : '',
+      facultyName,
     })
   }
   return rows

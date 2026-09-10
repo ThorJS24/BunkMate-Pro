@@ -1,14 +1,16 @@
 import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
 import fs from 'node:fs'
+import path from 'node:path'
 import { crashLogPath, appendCrashLog } from '../crash-log'
 import { extractHallTicketText } from '../hall-ticket-ocr'
 import { extractPdfText } from '../pdf-text'
 import { getEsproStatus, saveEsproCredential, removeEsproCredential, saveEsproSessionId } from '../espro/credential-store'
 import { esproCompareAttendance, esproSyncAttendance, esproGetDayPeriodDetail, esproAutoImportFullStudentData } from '../espro/sync'
-import type { AppDatabase } from '../db/client'
+import { type AppDatabase, getRawSqlite, getCurrentDbPath } from '../db/client'
 import { IPC_CHANNELS } from './contract'
 import { backupNow, restoreFrom, defaultBackupFileName } from '../backup'
 import { toggleMiniWindow } from '../mini-window'
+import { checkForUpdates, downloadUpdate, quitAndInstall } from '../auto-updater'
 import {
   semestersRepo,
   subjectsRepo,
@@ -19,6 +21,7 @@ import {
   leavePlansRepo,
   yellowFormsRepo,
   settingsRepo,
+  issueReportsRepo,
   periodTypeRulesRepo,
   sampleDataRepo,
   clearDataRepo,
@@ -308,26 +311,108 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.esproCompareAttendance, (_e, semesterLabel: string) =>
     esproCompareAttendance(db, app.getPath('userData'), semesterLabel),
   )
+  const broadcastEsproProgress = (p: any) => {
+    BrowserWindow.getAllWindows().forEach((w) => {
+      if (!w.isDestroyed()) w.webContents.send(IPC_CHANNELS.esproProgress, p)
+    })
+  }
+
   ipcMain.handle(IPC_CHANNELS.esproSyncAttendance, (_e, semesterLabel: string) =>
-    esproSyncAttendance(db, app.getPath('userData'), semesterLabel),
+    esproSyncAttendance(db, app.getPath('userData'), semesterLabel, broadcastEsproProgress),
   )
   ipcMain.handle(IPC_CHANNELS.esproGetDayPeriodDetail, (_e, semesterLabel: string, date: string) =>
     esproGetDayPeriodDetail(db, app.getPath('userData'), semesterLabel, date),
   )
   ipcMain.handle(IPC_CHANNELS.esproAutoImport, (_e, semesterLabel: string) =>
-    esproAutoImportFullStudentData(db, app.getPath('userData'), semesterLabel),
+    esproAutoImportFullStudentData(db, app.getPath('userData'), semesterLabel, broadcastEsproProgress),
   )
 
   ipcMain.handle(IPC_CHANNELS.updaterCheckForUpdates, async () => {
-    const { checkForUpdates } = await import('../auto-updater')
     return checkForUpdates()
   })
   ipcMain.handle(IPC_CHANNELS.updaterDownloadUpdate, async () => {
-    const { downloadUpdate } = await import('../auto-updater')
     return downloadUpdate()
   })
   ipcMain.handle(IPC_CHANNELS.updaterQuitAndInstall, async () => {
-    const { quitAndInstall } = await import('../auto-updater')
     return quitAndInstall()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.issuesList, () => issueReportsRepo.listIssueReports(db))
+  ipcMain.handle(IPC_CHANNELS.issuesCreate, (_e, input) => issueReportsRepo.createIssueReport(db, input))
+  ipcMain.handle(IPC_CHANNELS.issuesUpdate, (_e, id: number, input) => issueReportsRepo.updateIssueReport(db, id, input))
+  ipcMain.handle(IPC_CHANNELS.issuesDelete, (_e, id: number) => issueReportsRepo.deleteIssueReport(db, id))
+  ipcMain.handle(IPC_CHANNELS.issuesListComments, (_e, issueId: number) => issueReportsRepo.listIssueComments(db, issueId))
+  ipcMain.handle(IPC_CHANNELS.issuesAddComment, (_e, input) => issueReportsRepo.addIssueComment(db, input))
+  ipcMain.handle(IPC_CHANNELS.issuesSelectMedia, async () => {
+    const res = await showOpenDialog(getWindow(), {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images & Logs', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'log', 'txt'] }],
+    })
+    if (res.canceled || res.filePaths.length === 0) return []
+    const items = []
+    for (const filePath of res.filePaths) {
+      try {
+        const stats = fs.statSync(filePath)
+        if (stats.size > 10 * 1024 * 1024) continue // Skip > 10MB
+        const buffer = fs.readFileSync(filePath)
+        const name = path.basename(filePath)
+        const ext = path.extname(filePath).toLowerCase().replace('.', '')
+        const mime =
+          ext === 'png'
+            ? 'image/png'
+            : ext === 'jpg' || ext === 'jpeg'
+              ? 'image/jpeg'
+              : ext === 'webp'
+                ? 'image/webp'
+                : ext === 'gif'
+                  ? 'image/gif'
+                  : 'text/plain'
+        const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`
+        items.push({ name, type: mime, dataUrl, path: filePath })
+      } catch (err) {
+        console.error('Failed to read media file:', err)
+      }
+    }
+    return items
+  })
+
+  ipcMain.handle(IPC_CHANNELS.dbVacuum, () => {
+    try {
+      const sqlite = getRawSqlite()
+      const dbPath = getCurrentDbPath()
+      const beforeSize = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0
+      sqlite.exec('VACUUM;')
+      sqlite.pragma('optimize')
+      const afterSize = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0
+      const freedBytes = Math.max(0, beforeSize - afterSize)
+      return { success: true, freedBytes, beforeSize, afterSize }
+    } catch (err) {
+      console.error('Database VACUUM failed:', err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.dbStats, () => {
+    try {
+      const sqlite = getRawSqlite()
+      const dbPath = getCurrentDbPath()
+      const walPath = `${dbPath}-wal`
+      const dbSize = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0
+      const walSize = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0
+      const pageCount = (sqlite.pragma('page_count') as Array<{ page_count: number }>)[0]?.page_count ?? 0
+      const pageSize = (sqlite.pragma('page_size') as Array<{ page_size: number }>)[0]?.page_size ?? 0
+      return {
+        success: true,
+        dbPath,
+        dbSizeMb: (dbSize / (1024 * 1024)).toFixed(2),
+        walSizeMb: (walSize / (1024 * 1024)).toFixed(2),
+        totalSizeMb: ((dbSize + walSize) / (1024 * 1024)).toFixed(2),
+        pageCount,
+        pageSize,
+      }
+    } catch (err) {
+      console.error('Database stats query failed:', err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 }

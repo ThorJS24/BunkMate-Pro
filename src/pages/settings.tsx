@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FolderOpen, Save, Upload, Trash2, KeyRound, AlertTriangle, PictureInPicture2 } from 'lucide-react'
+import { FolderOpen, Save, Upload, Trash2, KeyRound, AlertTriangle, PictureInPicture2, Bug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,9 @@ import {
 } from '@/components/ui/dialog'
 import { EsproDisclosure, EsproAboutDialog } from '@/components/espro-disclosure'
 import { CollapsibleSection } from '@/components/collapsible-section'
+import { IssueReporterDialog } from '@/components/issue-reporter-dialog'
+import { CloudSyncManager } from '@/components/cloud-sync-manager'
+import { DbMaintenanceCard } from '@/components/db-maintenance-card'
 import { HelpHint } from '@/components/help-hint'
 import { friendlyError } from '@/lib/friendly-error'
 import { useSettingsStore } from '@/store/settings-store'
@@ -62,8 +65,6 @@ export function SettingsPage() {
     classReminderLeadMinutes,
     currentSemester,
     setCurrentSemester,
-    backupIntervalDays,
-    backupDir,
     lastBackupAt,
     setOverallMinTarget,
     setSubjectMinTarget,
@@ -83,8 +84,6 @@ export function SettingsPage() {
     setThemeScheduleStart,
     setThemeScheduleEnd,
     setClassReminderLeadMinutes,
-    setBackupIntervalDays,
-    setBackupDir,
     load,
   } = useSettingsStore()
   const pushToast = useToastStore((s) => s.push)
@@ -104,9 +103,9 @@ export function SettingsPage() {
   const [subjectMinTargetInput, setSubjectMinTargetInput] = useState(String(subjectMinTarget))
   const [atRiskMarginInput, setAtRiskMarginInput] = useState(String(atRiskMarginPp))
   const [leadInput, setLeadInput] = useState(String(classReminderLeadMinutes))
-  const [intervalInput, setIntervalInput] = useState(String(backupIntervalDays))
   const [accentColorInput, setAccentColorInput] = useState(accentColor ?? '')
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
   const [clearDataOpen, setClearDataOpen] = useState(false)
   const [clearDataText, setClearDataText] = useState('')
@@ -225,11 +224,6 @@ export function SettingsPage() {
     } finally {
       setEsproSavingSessionId(false)
     }
-  }
-
-  async function handleChooseBackupDir() {
-    const dir = await window.bunkmate.backup.chooseDir()
-    if (dir) await setBackupDir(dir)
   }
 
   async function handleBackupNow() {
@@ -704,45 +698,8 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Auto-backup location</CardTitle>
-              <CardDescription>
-                How often BunkMate saves a copy of your data automatically, and where. Pointing this at a folder
-                synced by OneDrive/Google Drive/Dropbox gives you an off-device (cloud) backup for free — each
-                snapshot just gets uploaded like any other file. This is a periodic copy, not live shared access:
-                don't point two installs of BunkMate at the same live database file at once, since SQLite isn't
-                built to have two processes writing to it through a sync client at the same time.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-end gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="backup-interval">Auto-backup every (days)</Label>
-                <Input
-                  id="backup-interval"
-                  type="number"
-                  min={1}
-                  className="w-28"
-                  value={intervalInput}
-                  onChange={(e) => setIntervalInput(e.target.value)}
-                  onBlur={() => {
-                    const clamped = Math.max(1, Number(intervalInput) || 1)
-                    setIntervalInput(String(clamped))
-                    setBackupIntervalDays(clamped)
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Auto-backup folder</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">{backupDir ?? 'Not set'}</span>
-                  <Button type="button" variant="outline" size="sm" onClick={handleChooseBackupDir}>
-                    <FolderOpen /> Choose folder
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <CloudSyncManager />
+          <DbMaintenanceCard />
 
           <Card>
             <CardHeader>
@@ -973,6 +930,22 @@ export function SettingsPage() {
           <EsproAboutDialog open={esproAboutOpen} onOpenChange={setEsproAboutOpen} />
         </div>
       </CollapsibleSection>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bug &amp; Issue Reporting</CardTitle>
+          <CardDescription>
+            Report bugs, request features, attach screenshots or log files, and track issue history.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button type="button" onClick={() => setIssueDialogOpen(true)}>
+            <Bug className="mr-2 size-4" /> Open Bug &amp; Issue Reporter
+          </Button>
+        </CardContent>
+      </Card>
+
+      <IssueReporterDialog open={issueDialogOpen} onOpenChange={setIssueDialogOpen} />
 
       <Card>
         <CardHeader>

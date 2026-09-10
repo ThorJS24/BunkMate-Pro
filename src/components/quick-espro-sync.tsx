@@ -15,6 +15,9 @@ import { useToastStore } from '@/store/toast-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useAttendanceStore } from '@/store/attendance-store'
 import { useSubjectsStore } from '@/store/subjects-store'
+import { useEsproSyncStore } from '@/store/espro-sync-store'
+import { useTimetableStore } from '@/store/timetable-store'
+import { EsproProgressBar } from '@/components/espro-progress-bar'
 
 interface QuickEsproSyncProps {
   variant?: 'default' | 'outline' | 'ghost' | 'secondary'
@@ -49,6 +52,7 @@ export function QuickEsproSyncButton({ variant = 'outline', size = 'sm', classNa
         return
       }
 
+      useEsproSyncStore.getState().startSync('Connecting to ESPRO & starting sync...')
       const res = await window.bunkmate.espro.syncAttendance(currentSemester)
 
       if (res.missingPeriodTimes) {
@@ -93,9 +97,11 @@ export function QuickEsproSyncButton({ variant = 'outline', size = 'sm', classNa
         return
       }
 
+      useEsproSyncStore.getState().startSync('Initializing 1-Click ESPRO Auto-Import...')
       const res = await window.bunkmate.espro.autoImport(currentSemester)
 
       useSubjectsStore.getState().load({ includeArchived: false })
+      await useTimetableStore.getState().load(currentSemester)
       await loadRecords()
 
       pushToast({
@@ -210,6 +216,8 @@ export function QuickEsproSyncButton({ variant = 'outline', size = 'sm', classNa
               <ShieldCheck className="size-4 shrink-0 text-success" />
               <span>Stored locally on this device only. Never sent to any server except official CHRIST endpoints.</span>
             </div>
+
+            <EsproProgressBar className="my-2" />
           </div>
 
           <DialogFooter>

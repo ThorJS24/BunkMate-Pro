@@ -1,5 +1,8 @@
 import { computeSafeBunkCount, resolveSubjectMinTarget } from './attendance-engine'
 import type { SubjectAttendance } from './attendance-engine'
+import ExcelJS from 'exceljs'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 export interface ReportSubjectRow {
   name: string
@@ -87,7 +90,6 @@ export function buildCsv(data: ReportData): string {
 }
 
 export async function buildExcelBuffer(data: ReportData): Promise<ArrayBuffer> {
-  const ExcelJS = (await import('exceljs')).default
   const workbook = new ExcelJS.Workbook()
   workbook.created = new Date(data.generatedAt)
 
@@ -121,8 +123,6 @@ export async function buildExcelBuffer(data: ReportData): Promise<ArrayBuffer> {
 }
 
 export async function buildPdfBuffer(data: ReportData): Promise<ArrayBuffer> {
-  const { jsPDF } = await import('jspdf')
-  const autoTable = (await import('jspdf-autotable')).default
   const doc = new jsPDF()
 
   doc.setFontSize(16)
@@ -170,8 +170,6 @@ export async function buildPdfBuffer(data: ReportData): Promise<ArrayBuffer> {
  * generation date, and a clean per-subject status table.
  */
 export async function buildAttendanceCertificatePdf(data: ReportData): Promise<ArrayBuffer> {
-  const { jsPDF } = await import('jspdf')
-  const autoTable = (await import('jspdf-autotable')).default
   const doc = new jsPDF()
 
   doc.setFontSize(18)

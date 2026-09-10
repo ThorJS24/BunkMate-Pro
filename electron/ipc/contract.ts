@@ -22,6 +22,23 @@ export interface PdfOcrProgress {
   /** Human-readable status, e.g. "Reading page 1 of 2". */
   detail: string
 }
+
+export interface EsproProgress {
+  stage:
+    | 'idle'
+    | 'logging_in'
+    | 'fetching_overview'
+    | 'discovering_courses'
+    | 'creating_subjects'
+    | 'fetching_days'
+    | 'syncing_days'
+    | 'done'
+    | 'error'
+  message: string
+  current?: number
+  total?: number
+  percentage: number
+}
 import type {
   TimetableSlot,
   NewTimetableSlot,
@@ -46,7 +63,22 @@ import type { YellowFormDisputeOutcome } from '../../src/db/schema'
 import type { Settings, SettingsUpdate } from '../db/repositories/settings'
 import type { PeriodTypeRule } from '../db/repositories/period-type-rules'
 
+import type {
+  IssueReport,
+  NewIssueReport,
+  IssueComment,
+  NewIssueComment,
+} from '../db/repositories/issue-reports'
+
 export const IPC_CHANNELS = {
+  issuesList: 'issues:list',
+  issuesCreate: 'issues:create',
+  issuesUpdate: 'issues:update',
+  issuesDelete: 'issues:delete',
+  issuesListComments: 'issues:listComments',
+  issuesAddComment: 'issues:addComment',
+  issuesSelectMedia: 'issues:selectMedia',
+
   semestersList: 'semesters:list',
   semestersCreate: 'semesters:create',
   semestersUpdate: 'semesters:update',
@@ -126,6 +158,9 @@ export const IPC_CHANNELS = {
   backupRestore: 'backup:restore',
   backupChooseDir: 'backup:chooseDir',
 
+  dbVacuum: 'db:vacuum',
+  dbStats: 'db:stats',
+
   esproGetStatus: 'espro:getStatus',
   esproSaveCredential: 'espro:saveCredential',
   esproRemoveCredential: 'espro:removeCredential',
@@ -134,6 +169,7 @@ export const IPC_CHANNELS = {
   esproSyncAttendance: 'espro:syncAttendance',
   esproGetDayPeriodDetail: 'espro:getDayPeriodDetail',
   esproAutoImport: 'espro:autoImport',
+  esproProgress: 'espro:progress',
 
   updaterCheckForUpdates: 'updater:checkForUpdates',
   updaterDownloadUpdate: 'updater:downloadUpdate',
@@ -141,7 +177,7 @@ export const IPC_CHANNELS = {
 } as const
 
 export interface BunkMateApi {
-  versions: { node: string; electron: string }
+  versions: { node: string; electron: string; app: string }
 
   semesters: {
     list: () => Promise<Semester[]>
@@ -360,6 +396,23 @@ export interface BunkMateApi {
     autoImport: (semesterLabel: string) => Promise<EsproAutoImportResult>
     /** Listens for background auto-sync completion notifications. Returns cleanup function. */
     onAutoSynced?: (callback: (result: unknown) => void) => () => void
+    /** Listens for live ESPRO sync & import progress updates. Returns cleanup function. */
+    onProgress?: (callback: (progress: EsproProgress) => void) => () => void
+  }
+
+  issues?: {
+    list: () => Promise<IssueReport[]>
+    create: (input: NewIssueReport) => Promise<IssueReport>
+    update: (id: number, input: Partial<IssueReport>) => Promise<IssueReport>
+    delete: (id: number) => Promise<void>
+    listComments: (issueId: number) => Promise<IssueComment[]>
+    addComment: (input: NewIssueComment) => Promise<IssueComment>
+    selectMedia: () => Promise<{ name: string; type: string; dataUrl: string; path: string }[]>
+  }
+
+  db?: {
+    vacuum: () => Promise<{ success: boolean; freedBytes: number; beforeSize: number; afterSize: number; error?: string }>
+    stats: () => Promise<{ success: boolean; dbPath: string; dbSizeMb: string; walSizeMb: string; totalSizeMb: string; pageCount: number; pageSize: number; error?: string }>
   }
 
   updater?: {

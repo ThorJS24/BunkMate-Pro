@@ -24,6 +24,8 @@ interface SettingsState {
   backupIntervalDays: number
   backupDir: string | null
   lastBackupAt: Date | null
+  esproAutoYellowForms: boolean
+  setEsproAutoYellowForms: (value: boolean) => Promise<void>
   loaded: boolean
   load: () => Promise<void>
   setOverallMinTarget: (value: number) => Promise<void>
@@ -72,6 +74,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   backupIntervalDays: 7,
   backupDir: null,
   lastBackupAt: null,
+  esproAutoYellowForms: true,
   loaded: false,
 
   load: async () => {
@@ -99,10 +102,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       backupIntervalDays: settings.backupIntervalDays,
       backupDir: settings.backupDir ?? null,
       lastBackupAt: settings.lastBackupAt ?? null,
+      esproAutoYellowForms: settings.esproAutoYellowForms ?? true,
       loaded: true,
     })
   },
 
+  setEsproAutoYellowForms: async (esproAutoYellowForms) => {
+    await window.bunkmate.settings.update({ esproAutoYellowForms })
+    set({ esproAutoYellowForms })
+  },
   setOverallMinTarget: async (overallMinTarget) => {
     await window.bunkmate.settings.update({ overallMinTarget })
     set({ overallMinTarget })

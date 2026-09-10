@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, Bug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { OnboardingChecklist } from '@/components/onboarding-checklist'
+import { IssueReporterDialog } from '@/components/issue-reporter-dialog'
 
 const GLOSSARY: { term: string; definition: string }[] = [
   {
@@ -43,6 +44,7 @@ const GLOSSARY: { term: string; definition: string }[] = [
 
 export function HelpCenterButton() {
   const [open, setOpen] = useState(false)
+  const [issueOpen, setIssueOpen] = useState(false)
   return (
     <>
       <Button
@@ -55,6 +57,7 @@ export function HelpCenterButton() {
       >
         <HelpCircle className="size-4" />
       </Button>
+      <IssueReporterDialog open={issueOpen} onOpenChange={setIssueOpen} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -68,6 +71,24 @@ export function HelpCenterButton() {
             </TabsList>
             <TabsContent value="getting-started">
               <OnboardingChecklist alwaysVisible />
+              <div className="mt-4 flex items-center justify-between rounded-lg border bg-muted/30 p-3">
+                <div className="text-xs">
+                  <p className="font-semibold">Having an issue or bug?</p>
+                  <p className="text-muted-foreground">Report bugs, request features, or attach screenshots.</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    setOpen(false)
+                    setIssueOpen(true)
+                  }}
+                >
+                  <Bug className="mr-1.5 size-3.5" />
+                  Report Issue
+                </Button>
+              </div>
             </TabsContent>
             <TabsContent value="glossary" className="space-y-3">
               {GLOSSARY.map((g) => (

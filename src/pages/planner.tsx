@@ -16,6 +16,7 @@ import { useHolidaysStore } from '@/store/holidays-store'
 import { useYellowFormsStore } from '@/store/yellow-forms-store'
 import { usePeriodTypeRulesStore } from '@/store/period-type-rules-store'
 import { useLeavePlansStore } from '@/store/leave-plans-store'
+import { ExamEligibilitySimulator } from '@/components/exam-eligibility-simulator'
 import { useAttendance } from '@/hooks/use-attendance'
 import { scopeRecordsToSubjects } from '@/lib/semester-scope'
 import { todayIso } from '@/lib/date-utils'
@@ -435,12 +436,17 @@ export function PlannerPage() {
         <CardContent>
           <Tabs defaultValue="safebunk">
             <TabsList>
+              <TabsTrigger value="eligibility">🎓 Exam Eligibility</TabsTrigger>
               <TabsTrigger value="safebunk">🎯 Safe Bunk &amp; Calculator</TabsTrigger>
               <TabsTrigger value="bunk">Bunk tomorrow</TabsTrigger>
               <TabsTrigger value="attend">Attend everything</TabsTrigger>
               <TabsTrigger value="leave">Leave for N days</TabsTrigger>
               <TabsTrigger value="form">Yellow form</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="eligibility">
+              <ExamEligibilitySimulator />
+            </TabsContent>
 
             <TabsContent value="safebunk">
               <SafeBunkCalculatorTab subjects={subjects} baselineMap={baseline} />

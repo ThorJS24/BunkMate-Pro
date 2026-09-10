@@ -26,6 +26,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { EsproComparisonTable } from '@/components/espro-comparison-table'
 import { EsproDayComparisonTable } from '@/components/espro-day-comparison-table'
 import { QuickEsproSyncButton } from '@/components/quick-espro-sync'
+import { EsproProgressBar } from '@/components/espro-progress-bar'
+import { useEsproSyncStore } from '@/store/espro-sync-store'
+import { useTimetableStore } from '@/store/timetable-store'
 import { SemesterSwitcher } from '@/components/semester-switcher'
 import { CollapsibleSection } from '@/components/collapsible-section'
 import type { EsproStatus } from '../../electron/espro/types'
@@ -146,6 +149,7 @@ export function AttendancePage() {
     if (!currentSemester) return
     setEsproSyncing(true)
     setEsproError(null)
+    useEsproSyncStore.getState().startSync('Connecting to ESPRO & starting sync...')
     try {
       const result = await window.bunkmate.espro.syncAttendance(currentSemester)
       if (result.missingPeriodTimes) {
@@ -166,6 +170,9 @@ export function AttendancePage() {
             ? `Couldn't match ${result.unmatchedDates.length} date${result.unmatchedDates.length === 1 ? '' : 's'}.`
             : undefined,
       })
+      if (currentSemester) {
+        await useTimetableStore.getState().load(currentSemester)
+      }
       await load({
         subjectId: subjectFilter === 'all' ? undefined : Number(subjectFilter),
         dateFrom: dateFrom || undefined,
@@ -518,6 +525,8 @@ export function AttendancePage() {
           </Button>
         </div>
       </div>
+
+      <EsproProgressBar className="my-3" />
 
       {/* Summary Stat Bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">

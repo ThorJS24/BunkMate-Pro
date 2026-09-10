@@ -32,6 +32,13 @@ export function initDb(userDataDir: string): AppDatabase {
     throw new Error(`SQLite integrity check failed for ${dbPath}: ${JSON.stringify(integrityResult)}`)
   }
 
+  try {
+    sqlite.pragma('optimize')
+    sqlite.pragma('reindex')
+  } catch (optErr) {
+    console.warn('SQLite optimize/reindex notice:', optErr)
+  }
+
   sqliteInstance = sqlite
   currentDbPath = dbPath
   const db = drizzle(sqlite, { schema })
@@ -39,6 +46,23 @@ export function initDb(userDataDir: string): AppDatabase {
   const migrationsFolder = path.join(__dirname, 'migrations')
   if (fs.existsSync(migrationsFolder)) {
     migrate(db, { migrationsFolder })
+  }
+
+  // Fallback check to ensure espro_auto_yellow_forms column exists in user's SQLite db
+  try {
+    const tableInfo = sqlite.pragma('table_info(settings)') as Array<{ name: string }>
+    if (tableInfo.length > 0 && !tableInfo.some((col) => col.name === 'espro_auto_yellow_forms')) {
+      sqlite.exec('ALTER TABLE settings ADD COLUMN espro_auto_yellow_forms INTEGER NOT NULL DEFAULT 1;')
+    }
+    // Update lunch_period to 5 (1:00 PM - 2:00 PM) for semesters previously defaulted to period 4
+    sqlite.exec("UPDATE semesters SET lunch_period = 5 WHERE lunch_period = 4;")
+    sqlite.exec("UPDATE timetable_slots SET type = 'class' WHERE period = 4 AND type = 'lunch';")
+    sqlite.exec("UPDATE timetable_slots SET type = 'lunch' WHERE period = 5 AND type = 'class';")
+    // Automatically deduplicate any legacy duplicate attendance records or timetable slots
+    sqlite.exec('DELETE FROM attendance_records WHERE id NOT IN (SELECT MIN(id) FROM attendance_records GROUP BY date, period, subject_id);')
+    sqlite.exec('DELETE FROM timetable_slots WHERE id NOT IN (SELECT MIN(id) FROM timetable_slots GROUP BY semester, day, period);')
+  } catch (err) {
+    console.error('Failed fallback schema checks:', err)
   }
 
   dbInstance = db

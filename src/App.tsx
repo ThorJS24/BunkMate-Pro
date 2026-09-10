@@ -10,6 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts'
 import { SetupWizard } from '@/components/setup-wizard'
 import { PomodoroWidget } from '@/components/pomodoro-widget'
+import { AutoUpdateNotifier } from '@/components/auto-update-notifier'
 import { Spinner } from '@/components/ui/spinner'
 
 // Route-level code splitting: each page becomes its own chunk instead of all
@@ -119,6 +120,7 @@ function AppRoutes() {
           <KeyboardShortcuts />
           <SetupWizard />
           <PomodoroWidget />
+          <AutoUpdateNotifier />
         </>
       )}
     </>
