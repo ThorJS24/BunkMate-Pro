@@ -7,9 +7,9 @@
 **Offline attendance tracking, prediction, and academic planning for CHRIST University students.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.1.3-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](package.json)
 [![CI Status](https://github.com/ThorJS24/BunkMate-Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/ThorJS24/BunkMate-Pro/actions)
-[![Latest Release](https://img.shields.io/github/v/release/ThorJS24/BunkMate-Pro)](https://github.com/ThorJS24/BunkMate-Pro/releases/tag/v2.1.3)
+[![Latest Release](https://img.shields.io/github/v/release/ThorJS24/BunkMate-Pro)](https://github.com/ThorJS24/BunkMate-Pro/releases/tag/v2.1.4)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](#getting-started)
 [![Built with Electron](https://img.shields.io/badge/Electron-43-9feaf9?logo=electron&logoColor=black)](https://www.electronjs.org/)
 [![Built with React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
