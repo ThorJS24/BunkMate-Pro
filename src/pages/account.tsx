@@ -20,6 +20,7 @@ import { useSettingsStore } from '@/store/settings-store'
 import { useAttendanceStore } from '@/store/attendance-store'
 import { useSubjectsStore } from '@/store/subjects-store'
 import { PrivacyPolicyDialog } from '@/components/privacy-policy-dialog'
+import { SignOutDialog } from '@/components/sign-out-dialog'
 import type { EsproStatus } from '../../electron/espro/types'
 
 export function AccountPage() {
@@ -33,7 +34,7 @@ export function AccountPage() {
   const [sessionId, setSessionId] = useState('')
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [removing, setRemoving] = useState(false)
+  const [signOutOpen, setSignOutOpen] = useState(false)
 
   // Auto-updater state
   const [checkingUpdate, setCheckingUpdate] = useState(false)
@@ -127,20 +128,6 @@ export function AccountPage() {
     }
   }
 
-  async function handleRemoveCredential() {
-    setRemoving(true)
-    try {
-      await window.bunkmate.espro.removeCredential()
-      setUsername('')
-      setPassword('')
-      pushToast({ title: 'Signed Out', description: 'ESPRO credentials deleted from device.' })
-      await loadStatus()
-    } catch {
-      pushToast({ title: 'Sign Out Failed', description: 'Could not remove credentials.' })
-    } finally {
-      setRemoving(false)
-    }
-  }
 
   async function handleCheckForUpdates() {
     if (!window.bunkmate?.updater) {
@@ -264,8 +251,8 @@ export function AccountPage() {
             </div>
 
             {esproStatus?.hasCredential && (
-              <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={handleRemoveCredential} disabled={removing}>
-                <LogOut className="size-4 mr-1.5" /> Sign Out & Clear Credentials
+              <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setSignOutOpen(true)}>
+                <LogOut className="size-4 mr-1.5" /> Sign Out & Clear Data
               </Button>
             )}
           </div>
@@ -286,7 +273,7 @@ export function AccountPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4 bg-muted/20">
             <div>
               <p className="text-sm font-medium">Installed Version</p>
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.1 (Multi-Platform Production Release)</p>
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.2 (Multi-Platform Production Release)</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -353,6 +340,17 @@ export function AccountPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Sign Out Confirmation Dialog */}
+      <SignOutDialog
+        open={signOutOpen}
+        onOpenChange={setSignOutOpen}
+        onCredentialsCleared={() => {
+          setUsername('')
+          setPassword('')
+          loadStatus()
+        }}
+      />
     </div>
   )
 }
