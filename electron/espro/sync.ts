@@ -335,7 +335,22 @@ export async function esproSyncAttendance(
   const creds = loadEsproCredential(userDataDir)
   if (!creds) throw new Error('No ESPRO credential is stored yet. Add one in Settings first.')
 
-  const semester = semestersRepo.listSemesters(db).find((s) => s.label === semesterLabel)
+  const existingSemesters = semestersRepo.listSemesters(db)
+  let semester = semesterLabel
+    ? existingSemesters.find((s) => s.label === semesterLabel)
+    : existingSemesters.find((s) => s.isActive) || existingSemesters[0]
+
+  if (!semester && !semesterLabel) {
+    const todayIso = new Date().toISOString().slice(0, 10)
+    const fourMonthsLaterIso = new Date(Date.now() + 120 * 86400000).toISOString().slice(0, 10)
+    semester = semestersRepo.createSemester(db, {
+      number: 1,
+      label: 'Semester 1',
+      startDate: todayIso,
+      endDate: fourMonthsLaterIso,
+      isActive: true,
+    })
+  }
   if (!semester) throw new Error(`No semester found for "${semesterLabel}".`)
   if (!semester.periodTimes || semester.periodTimes.length === 0) {
     return { created: 0, updated: 0, unchanged: 0, unmatchedDates: [], missingPeriodTimes: true }
@@ -462,8 +477,27 @@ export async function esproAutoImportFullStudentData(
   const creds = loadEsproCredential(userDataDir)
   if (!creds) throw new Error('No ESPRO credential is stored yet. Add your register number and password in Settings.')
 
-  const semester = semestersRepo.listSemesters(db).find((s) => s.label === semesterLabel)
-  if (!semester) throw new Error(`No active semester found for "${semesterLabel}".`)
+  const existingSemesters = semestersRepo.listSemesters(db)
+  let semester = existingSemesters.find((s) => s.label === semesterLabel)
+
+  if (!semester) {
+    let activeSem = existingSemesters.find((s) => s.isActive) || existingSemesters[0]
+    if (!activeSem) {
+      const todayIso = new Date().toISOString().slice(0, 10)
+      const fourMonthsLaterIso = new Date(Date.now() + 120 * 86400000).toISOString().slice(0, 10)
+      activeSem = semestersRepo.createSemester(db, {
+        number: 1,
+        label: 'Semester 1',
+        startDate: todayIso,
+        endDate: fourMonthsLaterIso,
+        isActive: true,
+      })
+    } else if (!activeSem.isActive) {
+      activeSem = semestersRepo.updateSemester(db, activeSem.id, { isActive: true })
+    }
+    semester = activeSem
+  }
+  const targetSemesterLabel = semester.label
 
   let session
   let sessionId
@@ -495,7 +529,7 @@ export async function esproAutoImportFullStudentData(
   const esproCourses = parseCourseWiseAttendance(courseJson)
 
   // 2. Auto-create any missing subjects (including archived subjects to respect unselected electives)
-  const localSubjects = subjectsRepo.listSubjects(db, { semester: semesterLabel, includeArchived: true })
+  const localSubjects = subjectsRepo.listSubjects(db, { semester: targetSemesterLabel, includeArchived: true })
   let subjectsCreated = 0
   for (const esproCourse of esproCourses) {
     const codeLower = esproCourse.courseCode?.toLowerCase()
@@ -511,7 +545,7 @@ export async function esproAutoImportFullStudentData(
       const isElective = /elective|elec|open|discipline/i.test(esproCourse.courseName) || /elective|elec|open|discipline/i.test(esproCourse.courseCode ?? '')
       subjectsRepo.createSubject(db, {
         name: subjectName,
-        semester: semesterLabel,
+        semester: targetSemesterLabel,
         credits: 3,
         faculty: null,
         category: isElective ? 'elective' : 'core',
@@ -531,7 +565,7 @@ export async function esproAutoImportFullStudentData(
   }
 
   // 4. Perform full sync
-  const syncResult = await esproSyncAttendance(db, userDataDir, semesterLabel)
+  const syncResult = await esproSyncAttendance(db, userDataDir, targetSemesterLabel)
 
   return {
     ...syncResult,

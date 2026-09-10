@@ -1,5 +1,5 @@
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, app } from 'electron'
 
 export interface UpdateStatusPayload {
   status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
@@ -48,18 +48,34 @@ function sendStatus(payload: UpdateStatusPayload) {
 }
 
 export async function checkForUpdates(): Promise<UpdateStatusPayload> {
+  sendStatus({ status: 'checking' })
+  if (!app.isPackaged) {
+    const devPayload: UpdateStatusPayload = {
+      status: 'not-available',
+      error: `Running in development mode (v${app.getVersion()}). Auto-updater is active in production builds.`,
+    }
+    sendStatus(devPayload)
+    return devPayload
+  }
+
   try {
     const res = await autoUpdater.checkForUpdates()
-    if (!res) {
-      return { status: 'not-available' }
+    if (!res || !res.updateInfo) {
+      const notAvailPayload: UpdateStatusPayload = { status: 'not-available' }
+      sendStatus(notAvailPayload)
+      return notAvailPayload
     }
-    return {
+    const availPayload: UpdateStatusPayload = {
       status: 'available',
       info: res.updateInfo,
     }
+    sendStatus(availPayload)
+    return availPayload
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { status: 'error', error: msg }
+    const errPayload: UpdateStatusPayload = { status: 'error', error: msg }
+    sendStatus(errPayload)
+    return errPayload
   }
 }
 

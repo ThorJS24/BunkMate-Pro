@@ -19,6 +19,7 @@ import { useToastStore } from '@/store/toast-store'
 import { useSettingsStore } from '@/store/settings-store'
 import { useAttendanceStore } from '@/store/attendance-store'
 import { useSubjectsStore } from '@/store/subjects-store'
+import { useSemestersStore } from '@/store/semesters-store'
 import { PrivacyPolicyDialog } from '@/components/privacy-policy-dialog'
 import { SignOutDialog } from '@/components/sign-out-dialog'
 import type { EsproStatus } from '../../electron/espro/types'
@@ -103,14 +104,13 @@ export function AccountPage() {
   }
 
   async function handleAutoImport() {
-    if (!currentSemester) {
-      pushToast({ title: 'No semester selected', description: 'Select an active semester first.' })
-      return
-    }
-
     setSyncing(true)
     try {
-      const res = await window.bunkmate.espro.autoImport(currentSemester)
+      const targetSem = currentSemester || ''
+      const res = await window.bunkmate.espro.autoImport(targetSem)
+      
+      await useSemestersStore.getState().load()
+      await useSettingsStore.getState().load()
       useSubjectsStore.getState().load({ includeArchived: false })
       await loadRecords()
 
@@ -128,23 +128,39 @@ export function AccountPage() {
     }
   }
 
-
   async function handleCheckForUpdates() {
     if (!window.bunkmate?.updater) {
-      pushToast({ title: 'Updates Available via GitHub Releases' })
+      pushToast({
+        title: 'Updates Available via GitHub Releases',
+        description: 'Visit github.com/ThorJS24/BunkMate-Pro/releases',
+      })
       return
     }
     setCheckingUpdate(true)
+    setUpdateStatus({ status: 'checking' })
     try {
       const res = await window.bunkmate.updater.checkForUpdates()
       setUpdateStatus(res as any)
       if (res.status === 'not-available') {
-        pushToast({ title: 'App is Up to Date', description: 'You are running the latest version of BunkMate Pro.' })
+        pushToast({
+          title: 'App is Up to Date',
+          description: res.error || 'You are running the latest version of BunkMate Pro (v2.1.3).',
+        })
       } else if (res.status === 'available') {
-        pushToast({ title: 'New Update Found!', description: 'Click Download Update to start downloading.' })
+        pushToast({
+          title: 'New Update Found!',
+          description: `Version ${(res.info as any)?.version ?? ''} is ready for download.`,
+        })
+      } else if (res.status === 'error') {
+        pushToast({
+          title: 'Update Check Status',
+          description: res.error || 'Unable to contact update server.',
+        })
       }
     } catch (err) {
-      pushToast({ title: 'Update check failed', description: String(err) })
+      const msg = err instanceof Error ? err.message : String(err)
+      setUpdateStatus({ status: 'error', error: msg })
+      pushToast({ title: 'Update Check Failed', description: msg })
     } finally {
       setCheckingUpdate(false)
     }
@@ -273,7 +289,7 @@ export function AccountPage() {
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4 bg-muted/20">
             <div>
               <p className="text-sm font-medium">Installed Version</p>
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.2 (Multi-Platform Production Release)</p>
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">v2.1.3 (Multi-Platform Production Release)</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -294,8 +310,34 @@ export function AccountPage() {
             </div>
           </div>
 
+          {updateStatus.status === 'checking' && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <RefreshCw className="size-4 animate-spin text-primary" /> Checking GitHub Releases for software updates...
+              </p>
+            </div>
+          )}
+
+          {updateStatus.status === 'not-available' && (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs space-y-1">
+              <p className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="size-4 text-emerald-500" /> BunkMate Pro is up to date!
+              </p>
+              {updateStatus.error && <p className="text-muted-foreground text-[11px]">{updateStatus.error}</p>}
+            </div>
+          )}
+
+          {updateStatus.status === 'error' && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs space-y-1">
+              <p className="font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <AlertCircle className="size-4 text-amber-500" /> Update Check Status
+              </p>
+              <p className="text-muted-foreground text-[11px]">{updateStatus.error || 'Could not fetch release payload.'}</p>
+            </div>
+          )}
+
           {updateStatus.status === 'downloading' && (
-            <div className="rounded border bg-primary/5 p-3 text-xs space-y-1">
+            <div className="rounded-lg border bg-primary/5 p-3 text-xs space-y-1">
               <p className="font-medium text-primary flex items-center gap-1.5">
                 <Download className="size-4 animate-bounce" /> Downloading update package...
               </p>
